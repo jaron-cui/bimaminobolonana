@@ -1,2 +1,12 @@
 mujoco==3.3.6
 robot-descriptions==1.21.0
+
+open-clip-torch==2.24.0
+opencv-python>=4.10
+numpy>=1.26
+einops>=0.8
+omegaconf>=2.3
+tqdm>=4.66
+pytest>=8.3
+black>=24.8
+isort>=5.13
