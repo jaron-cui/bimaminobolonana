@@ -1,0 +1,5 @@
+name: clip_vit
+model_name: ViT-B-32
+out_dim: 512
+freeze: true
+fuse: mean # options: null, mean, max, concat_mlp

@@ -1,0 +1,6 @@
+name: pri3d
+variant: resnet50
+pretrained: true
+freeze: true
+out_dim: 512
+fuse: concat_mlp

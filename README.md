@@ -15,7 +15,7 @@ pip install -r requirements.txt
 python3.10 -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip
 # CPU PyTorch (works everywhere)
-pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.* torchvision==0.19.*
+pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1 torchvision==0.19.1
 pip install -r requirements.txt
 pytest -q
 ```
