@@ -1,0 +1,6 @@
+name: pri3d
+variant: resnet50
+pretrained: false
+freeze: false
+out_dim: 512
+fuse: mean
