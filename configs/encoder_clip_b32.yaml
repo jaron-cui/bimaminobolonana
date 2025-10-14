@@ -3,3 +3,4 @@ model_name: ViT-B-32
 out_dim: 512
 freeze: true
 fuse: mean # options: null, mean, max, concat_mlp
+# NOTE: preprocess inputs with build_image_transform(kind="clip", size=224)

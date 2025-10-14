@@ -4,3 +4,4 @@ pretrained: true
 freeze: true
 out_dim: 512
 fuse: concat_mlp
+# NOTE: preprocess inputs with build_image_transform(kind="imagenet", size=224)

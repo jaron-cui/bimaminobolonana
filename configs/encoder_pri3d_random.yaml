@@ -4,3 +4,4 @@ pretrained: false
 freeze: false
 out_dim: 512
 fuse: mean
+# NOTE: preprocess inputs with build_image_transform(kind="imagenet", size=224)
