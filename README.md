@@ -56,3 +56,21 @@ from omegaconf import OmegaConf
 enc = build_encoder(OmegaConf.load("configs/encoder_clip_b32.yaml"))             # stub (no weights)
 # enc = build_encoder(OmegaConf.load("configs/encoder_clip_b32_openai.yaml"))   # pretrained
 ```
+
+## Pri3D encoder (random-init ResNet)
+
+Our Pri3D baseline uses a torchvision ResNet (18/34/50) with **random init** as a capacity-matched control.
+- Config: `configs/encoder_pri3d_random.yaml`
+- Preprocessing: use `build_image_transform(kind="imagenet", size=224)`
+- API matches CLIP: `enc.encode((x_left, x_right))` → dict with `left`, `right`, `fused` (all B×512)
+
+Example:
+```python
+from encoders import build_encoder
+from encoders.transforms import build_image_transform, prepare_batch
+enc = build_encoder({"name":"pri3d","variant":"resnet50","pretrained":False,"freeze":False,"out_dim":512,"fuse":"mean"})
+tfm = build_image_transform(kind="imagenet", size=224)
+x_left  = prepare_batch(left_pil,  transform=tfm)
+x_right = prepare_batch(right_pil, transform=tfm)
+feats = enc.encode((x_left, x_right))["fused"]  # B x 512
+```
