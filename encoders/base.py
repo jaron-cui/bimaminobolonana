@@ -14,14 +14,17 @@ ImgOrPair = Union[Tensor, Tuple[Tensor, Tensor]]
 def _get_fuser(name: Optional[str], dim: int):
     if name is None:
         return None
-    from fusion.late_fusion import ConcatMLP, fuse_max, fuse_mean
-
+    from fusion import fuse_mean, fuse_max, ConcatMLP, GatedFusion, BilinearFusion
     if name == "mean":
         return lambda a, b: fuse_mean(a, b)
     if name == "max":
         return lambda a, b: fuse_max(a, b)
     if name == "concat_mlp":
         return ConcatMLP(in_dim=dim, out_dim=dim)
+    if name == "gated":
+        return GatedFusion(dim)
+    if name == "bilinear":
+        return BilinearFusion(dim)
     raise ValueError(f"Unknown fuse option: {name}")
 
 

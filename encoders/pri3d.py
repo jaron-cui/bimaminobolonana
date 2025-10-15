@@ -55,8 +55,12 @@ class Pri3DEncoder(MultiViewEncoder):
             self.to(device)
 
         if freeze:
-            for p in self.parameters():
-                p.requires_grad = False
+            # freeze backbone + projector, but keep fusion head (if any) trainable
+            freeze_modules = [self.model, self.proj] if hasattr(self, "model") else [self.backbone, self.proj]
+            for m in freeze_modules:
+                for p in m.parameters():
+                    p.requires_grad = False
+
 
         # Document expected preprocessing (ImageNet stats)
         self.expected_preprocess = "imagenet"

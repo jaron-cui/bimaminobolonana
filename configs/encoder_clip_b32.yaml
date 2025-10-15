@@ -2,5 +2,5 @@ name: clip_vit
 model_name: ViT-B-32
 out_dim: 512
 freeze: true
-fuse: mean # options: null, mean, max, concat_mlp
+fuse: mean # or: bilinear, concat_mlp, gated, max
 # NOTE: preprocess inputs with build_image_transform(kind="clip", size=224)

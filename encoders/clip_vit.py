@@ -54,10 +54,12 @@ class ClipEncoder(MultiViewEncoder):
 
         # Freezing policy
         if freeze:
-            for p in self.model.parameters():
-                p.requires_grad = False
-            for p in self.proj.parameters():
-                p.requires_grad = False
+            # freeze backbone + projector, keep fusion head trainable
+            freeze_modules = [self.model, self.proj] if hasattr(self, "model") else [self.backbone, self.proj]
+            for m in freeze_modules:
+                for p in m.parameters():
+                    p.requires_grad = False
+
 
         # Optional: expose CLIP's own transform
         self.use_model_preprocess = bool(use_model_preprocess)
