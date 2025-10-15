@@ -3,4 +3,8 @@ variant: resnet50
 pretrained: true
 freeze: true
 out_dim: 512
-fuse: concat_mlp
+# If you keep the backbone frozen but want a small learnable head:
+# fuse: gated # (or bilinear/concat_mlp)
+# If everything is frozen for a pure “frozen features” baseline:
+fuse: mean
+# NOTE: preprocess inputs with build_image_transform(kind="imagenet", size=224)

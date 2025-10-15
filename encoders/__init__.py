@@ -47,22 +47,13 @@ def build_encoder(cfg: Dict[str, Any] | Any) -> MultiViewEncoder:
 
     cls = _REGISTRY[name]
 
-    # Normalize into kwargs the classes expect:
     if name == "clip_vit":
         kwargs = {
-            "model_name": getattr(cfg, "model_name", None)
-            or cfg.get("model_name", "ViT-B-32"),
+            "model_name": getattr(cfg, "model_name", None) or cfg.get("model_name", "ViT-B-32"),
+            "pretrained": getattr(cfg, "pretrained", None) if hasattr(cfg, "pretrained") else cfg.get("pretrained", None),
             "out_dim": int(getattr(cfg, "out_dim", None) or cfg.get("out_dim", 512)),
-            "freeze": bool(
-                getattr(cfg, "freeze", None)
-                if hasattr(cfg, "freeze")
-                else cfg.get("freeze", True)
-            ),
-            "fuse": (
-                getattr(cfg, "fuse", None)
-                if hasattr(cfg, "fuse")
-                else cfg.get("fuse", None)
-            ),
+            "freeze": bool(getattr(cfg, "freeze", None) if hasattr(cfg, "freeze") else cfg.get("freeze", True)),
+            "fuse": getattr(cfg, "fuse", None) if hasattr(cfg, "fuse") else cfg.get("fuse", None),
         }
         return cls(**kwargs)
 

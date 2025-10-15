@@ -3,4 +3,8 @@ variant: resnet50
 pretrained: false
 freeze: false
 out_dim: 512
+# If you plan to train this baseline:
+# fuse: bilinear # or: gated | concat_mlp (all are learnable)
+# If you want a no-param baseline:
 fuse: mean
+# NOTE: preprocess inputs with build_image_transform(kind="imagenet", size=224)
