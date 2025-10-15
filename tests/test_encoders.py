@@ -31,3 +31,11 @@ def test_pri3d_registry_and_shapes():
     assert out["left"].shape == (2, cfg["out_dim"])
     assert out["right"].shape == (2, cfg["out_dim"])
     assert out["fused"].shape == (2, cfg["out_dim"])
+
+
+def test_clip_freezing_flag():
+    from encoders import build_encoder
+    cfg = {"name": "clip_vit", "model_name": "ViT-B-32", "pretrained": None, "freeze": True, "out_dim": 512}
+    enc = build_encoder(cfg)
+    # projector and backbone should be frozen
+    assert all(not p.requires_grad for p in enc.parameters())

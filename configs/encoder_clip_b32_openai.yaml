@@ -1,0 +1,7 @@
+name: clip_vit
+model_name: ViT-B-32
+pretrained: openai
+out_dim: 512
+freeze: true
+fuse: mean
+# NOTE: preprocess with build_image_transform(kind="clip", size=224) or enc.transform
