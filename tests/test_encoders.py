@@ -39,3 +39,10 @@ def test_clip_freezing_flag():
     enc = build_encoder(cfg)
     # projector and backbone should be frozen
     assert all(not p.requires_grad for p in enc.parameters())
+
+
+def test_pri3d_freezing_flag():
+    cfg = {"name": "pri3d", "variant": "resnet50", "pretrained": False, "freeze": True, "out_dim": 512}
+    from encoders import build_encoder
+    enc = build_encoder(cfg)
+    assert all(not p.requires_grad for p in enc.parameters())

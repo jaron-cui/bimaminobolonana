@@ -53,6 +53,18 @@ def image_demo(use_pretrained: bool):
     out = enc.encode((x_left, x_right))
     print("[CLIP]   left/right/fused:", out["left"].shape, out["right"].shape, out.get("fused").shape)
 
+def pri3d_image_demo():
+    print("=== Pri3D image demo (imagenet transforms) ===")
+    tfm_im = build_image_transform(kind="imagenet", size=224)
+    left  = Image.new("RGB", (320, 240), color=(30, 30, 200))
+    right = Image.new("RGB", (240, 320), color=(30, 200, 30))
+    x_left  = prepare_batch(left,  transform=tfm_im)
+    x_right = prepare_batch(right, transform=tfm_im)
+    enc_p = build_encoder(load_cfg("configs/encoder_pri3d_random.yaml"))
+    out_p = enc_p.encode((x_left, x_right))
+    print("[Pri3D-img] left/right/fused:", out_p["left"].shape, out_p["right"].shape, out_p.get("fused").shape)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pretrained", action="store_true", help="Use CLIP ViT-B/32 (openai) if config exists")
@@ -60,6 +72,7 @@ def main():
 
     random_tensor_demo()
     image_demo(use_pretrained=args.pretrained)
+    pri3d_image_demo()
 
 if __name__ == "__main__":
     main()
