@@ -44,3 +44,15 @@ x_right = prepare_batch(right_pil_image, transform=tfm)   # [1,3,224,224]
 tfm_im = build_image_transform(kind="imagenet", size=224)
 x = prepare_batch([img1, img2, img3], transform=tfm_im)   # [B,3,224,224]
 ```
+
+## CLIP encoder (ViT-B/32)
+
+We ship a real CLIP image encoder via `open-clip`. By default the config uses no pretrained weights (CI-safe); use the `openai` config for real features.
+
+**Instantiate**
+```python
+from encoders import build_encoder
+from omegaconf import OmegaConf
+enc = build_encoder(OmegaConf.load("configs/encoder_clip_b32.yaml"))             # stub (no weights)
+# enc = build_encoder(OmegaConf.load("configs/encoder_clip_b32_openai.yaml"))   # pretrained
+```
