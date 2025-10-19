@@ -1,5 +1,6 @@
 mujoco==3.3.6
 robot-descriptions==1.21.0
+opencv-python>=4.12
 
 open-clip-torch==2.24.0
 opencv-python>=4.10
