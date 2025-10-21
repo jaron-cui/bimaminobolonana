@@ -1,0 +1,8 @@
+<mujoco model="custom_assets">
+  <worldbody>
+    <body name="block" pos="0 0 0.2">
+      <freejoint/>
+      <geom type="box" size="0.03 0.03 0.03" rgba="1 0 0 1" mass="0.1"/>
+    </body>
+  </worldbody>
+</mujoco>
