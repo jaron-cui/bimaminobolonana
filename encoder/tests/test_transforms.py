@@ -1,5 +1,5 @@
 import torch
-from encoders.transforms import build_image_transform, prepare_batch
+from encoder.transforms import build_image_transform, prepare_batch
 
 def _dummy_image(h=240, w=320):
     # uint8 HxWxC array; ToPILImage handles numpy input

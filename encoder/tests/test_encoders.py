@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 import yaml
 
-from encoders import build_encoder
+from encoder import build_encoder
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,7 +34,7 @@ def test_pri3d_registry_and_shapes():
 
 
 def test_clip_freezing_flag():
-    from encoders import build_encoder
+    from encoder import build_encoder
     cfg = {"name": "clip_vit", "model_name": "ViT-B-32", "pretrained": None, "freeze": True, "out_dim": 512}
     enc = build_encoder(cfg)
     # projector and backbone should be frozen
@@ -43,6 +43,6 @@ def test_clip_freezing_flag():
 
 def test_pri3d_freezing_flag():
     cfg = {"name": "pri3d", "variant": "resnet50", "pretrained": False, "freeze": True, "out_dim": 512}
-    from encoders import build_encoder
+    from encoder import build_encoder
     enc = build_encoder(cfg)
     assert all(not p.requires_grad for p in enc.parameters())

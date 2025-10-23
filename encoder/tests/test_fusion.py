@@ -1,5 +1,5 @@
 import torch
-from encoders import build_encoder
+from encoder import build_encoder
 
 def _pair(B=3, C=3, H=224, W=224):
     x = torch.randn(B, C, H, W)

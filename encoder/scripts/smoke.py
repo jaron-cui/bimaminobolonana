@@ -6,8 +6,8 @@ ROOT = os.path.dirname(os.path.dirname(__file__)); sys.path.insert(0, ROOT)
 import torch
 import yaml
 from PIL import Image
-from encoders import build_encoder
-from encoders.transforms import build_image_transform, prepare_batch
+from encoder import build_encoder
+from encoder.transforms import build_image_transform, prepare_batch
 
 CFG_DIR = Path(ROOT) / "configs"
 
