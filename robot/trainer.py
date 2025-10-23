@@ -15,7 +15,13 @@ class BimanualActor(nn.Module, abc.ABC):
     raise NotImplementedError()
 
 
-class BCTrainer:
+class Trainer(abc.ABC):
+  @abc.abstractmethod
+  def train(self, model: BimanualActor, num_epochs: int):
+    raise NotImplementedError()
+
+
+class BCTrainer(Trainer):
   def __init__(
     self,
     dataloader,
@@ -44,7 +50,7 @@ class BCTrainer:
         self.job.save_checkpoint(model, 'bc-pretrain', epoch)
 
 
-class RLTrainer:
+class RLTrainer(Trainer):
   def __init__(
     self,
     dataloader,

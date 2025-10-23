@@ -26,6 +26,14 @@ class BimanualObs:
   qpos: 'BimanualState'
   qvel: 'BimanualState'
 
+  @property
+  def left_qpos_array(self) -> np.ndarray:
+    return self.qpos.array[:8]
+  
+  @property
+  def right_qpos_array(self) -> np.ndarray:
+    return self.qpos.array[8:]
+
 
 class BimanualState:
   """
@@ -294,7 +302,7 @@ class BimanualAction:
 class BimanualSim:
   def __init__(
     self,
-    initial_pos: BimanualState | None = None,
+    initial_pose: BimanualState | None = None,
     substeps: int = 5,
     camera_dims: Tuple[int, int] = (480, 540),
     obs_camera_names: Sequence[str] = ('wrist_cam_left', 'wrist_cam_right'),
@@ -311,28 +319,28 @@ class BimanualSim:
     :param merge_xml_files: XML files to merge into the scene, such as those containing task-specific objects.
     :param on_mujoco_init: General-purpose function called after MuJoCo initialization to modify the model and data.
     """
-    if initial_pos is None:
-      initial_pos = BimanualState()
-      initial_pos.left_shoulder = -1
-      initial_pos.left_elbow = 0.5
-      initial_pos.left_wrist_angle = 1
-      initial_pos.left_left_finger = 0.01
-      initial_pos.left_right_finger = 0.01
-      initial_pos.right_shoulder = -1
-      initial_pos.right_elbow = 0.5
-      initial_pos.right_wrist_angle = 1
-      initial_pos.right_left_finger = 0.01
-      initial_pos.right_right_finger = 0.01
-    initial_ctrl = initial_pos.to_approximate_action()
+    # set default pose
+    if initial_pose is None:
+      initial_pose = BimanualState()
+      initial_pose.left_shoulder = -1
+      initial_pose.left_elbow = 0.5
+      initial_pose.left_wrist_angle = 1
+      initial_pose.left_left_finger = 0.01
+      initial_pose.left_right_finger = 0.01
+      initial_pose.right_shoulder = -1
+      initial_pose.right_elbow = 0.5
+      initial_pose.right_wrist_angle = 1
+      initial_pose.right_left_finger = 0.01
+      initial_pose.right_right_finger = 0.01
+    self.initial_pose = initial_pose
+    self.on_mujoco_init = on_mujoco_init
 
+    # init mujoco
     self.model: mujoco.MjModel = merge_xml_into_mujoco_scene(Path(aloha_mj_description.MJCF_PATH), merge_xml_files)
-    # self.model: mujoco.MjModel = mujoco.MjModel.from_xml_path(aloha_mj_description.MJCF_PATH)
     self.data: mujoco.MjData = mujoco.MjData(self.model)
-
-    self.data.qpos[:OBSERVATION_SIZE] = initial_pos.array
-    self.data.ctrl[:ACTION_SIZE] = initial_ctrl.array
-
-    self.model, self.data = on_mujoco_init(self.model, self.data)
+    # self.data.qpos[:OBSERVATION_SIZE] = initial_pose.array
+    # self.data.ctrl[:ACTION_SIZE] = self.initial_pose.to_approximate_action().array
+    # self.model, self.data = on_mujoco_init(self.model, self.data)
 
     self.substeps = substeps
     self.camera_dims = camera_dims
@@ -349,6 +357,17 @@ class BimanualSim:
     self.model.vis.global_.offheight = max(self.model.vis.global_.offheight, camera_dims[0])
     self.model.vis.global_.offwidth  = max(self.model.vis.global_.offwidth,  camera_dims[1])
 
+    # mujoco.mj_forward(self.model, self.data)
+    self.reset()
+
+  def reset(self):
+    mujoco.mj_resetData(self.model, self.data)
+    self.data.qpos[:OBSERVATION_SIZE] = self.initial_pose.array
+    self.data.ctrl[:ACTION_SIZE] = self.initial_pose.to_approximate_action().array
+    self.model, self.data = self.on_mujoco_init(self.model, self.data)
+    mujoco.mj_forward(self.model, self.data)
+
+
   def get_obs(self) -> BimanualObs:
     # extract camera images (num_cameras, height, width, 3)
     visual_obs = np.zeros((len(self.renderers), self.camera_dims[0], self.camera_dims[1], 3))
@@ -358,8 +377,8 @@ class BimanualSim:
     
     return BimanualObs(
       visual=visual_obs,
-      qpos=BimanualState(self.data.qpos.copy()),
-      qvel=BimanualState(self.data.qvel.copy())
+      qpos=BimanualState(self.data.qpos[:OBSERVATION_SIZE].copy()),
+      qvel=BimanualState(self.data.qvel[:OBSERVATION_SIZE].copy())
     )
 
   def step(self, action: np.ndarray | BimanualAction) -> BimanualObs:
