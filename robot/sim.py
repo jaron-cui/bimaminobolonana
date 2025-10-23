@@ -298,7 +298,7 @@ class BimanualSim:
     substeps: int = 5,
     camera_dims: Tuple[int, int] = (480, 540),
     obs_camera_names: Sequence[str] = ('wrist_cam_left', 'wrist_cam_right'),
-    merge_xml_files: Sequence[Path] = tuple(),
+    merge_xml_files: Sequence[Path | str] = tuple(),
     on_mujoco_init: Callable[[mujoco.MjModel, mujoco.MjData], Tuple[mujoco.MjModel, mujoco.MjData]] = lambda m, d: (m, d)
   ):
     """
@@ -346,7 +346,6 @@ class BimanualSim:
     self.model.vis.global_.offheight = max(self.model.vis.global_.offheight, camera_dims[0])
     self.model.vis.global_.offwidth = max(self.model.vis.global_.offwidth,  camera_dims[1])
 
-    # mujoco.mj_forward(self.model, self.data)
     self.reset()
 
   def reset(self):
@@ -376,7 +375,7 @@ class BimanualSim:
     :param action: New target positions for all joints, of shape (num_joints,).
     :return: The observation taken after a number of simulation substeps are applied.
     """
-    if isinstance(action, BimanualAction):
+    if not isinstance(action, np.ndarray):
       action = action.array
     assert action.shape == (self.model.nu,), f'Expected action of shape ({self.model.nu},), but got {action.shape}.'
 
@@ -386,6 +385,16 @@ class BimanualSim:
       mujoco.mj_step(self.model, self.data)
 
     return self.get_obs()
+
+  def __enter__(self):
+      return self
+  
+  def __exit__(self, exc_type, exc_val, exc_tb):
+      self.__del__()
+  
+  def __del__(self):
+    for _, renderer in self.renderers:
+      renderer.close()
 
   def launch_viewer(self):
     import mujoco.viewer
@@ -404,7 +413,7 @@ class BimanualSim:
     return data
     
 
-def merge_xml_into_mujoco_scene(scene_path: Path, merge_paths: Sequence[Path]):
+def merge_xml_into_mujoco_scene(scene_path: Path, merge_paths: Sequence[Path | str]):
   # cache current directory
   original_dir = os.getcwd()
   
