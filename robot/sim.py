@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Callable, Sequence, Tuple
+from typing import Callable, List, Sequence, Tuple
 from xml.etree import ElementTree as ET
 
 import mujoco
@@ -25,14 +25,6 @@ class BimanualObs:
   visual: np.ndarray
   qpos: 'BimanualState'
   qvel: 'BimanualState'
-
-  @property
-  def left_qpos_array(self) -> np.ndarray:
-    return self.qpos.array[:8]
-  
-  @property
-  def right_qpos_array(self) -> np.ndarray:
-    return self.qpos.array[8:]
 
 
 class BimanualState:
@@ -338,9 +330,6 @@ class BimanualSim:
     # init mujoco
     self.model: mujoco.MjModel = merge_xml_into_mujoco_scene(Path(aloha_mj_description.MJCF_PATH), merge_xml_files)
     self.data: mujoco.MjData = mujoco.MjData(self.model)
-    # self.data.qpos[:OBSERVATION_SIZE] = initial_pose.array
-    # self.data.ctrl[:ACTION_SIZE] = self.initial_pose.to_approximate_action().array
-    # self.model, self.data = on_mujoco_init(self.model, self.data)
 
     self.substeps = substeps
     self.camera_dims = camera_dims
@@ -355,7 +344,7 @@ class BimanualSim:
 
     # ensure off-screen rendering buffer is at least the size of all camera frames
     self.model.vis.global_.offheight = max(self.model.vis.global_.offheight, camera_dims[0])
-    self.model.vis.global_.offwidth  = max(self.model.vis.global_.offwidth,  camera_dims[1])
+    self.model.vis.global_.offwidth = max(self.model.vis.global_.offwidth,  camera_dims[1])
 
     # mujoco.mj_forward(self.model, self.data)
     self.reset()
@@ -366,7 +355,6 @@ class BimanualSim:
     self.data.ctrl[:ACTION_SIZE] = self.initial_pose.to_approximate_action().array
     self.model, self.data = self.on_mujoco_init(self.model, self.data)
     mujoco.mj_forward(self.model, self.data)
-
 
   def get_obs(self) -> BimanualObs:
     # extract camera images (num_cameras, height, width, 3)
@@ -402,6 +390,18 @@ class BimanualSim:
   def launch_viewer(self):
     import mujoco.viewer
     mujoco.viewer.launch(self.model, self.data)
+
+  def rollout(self, policy: Callable[[BimanualObs], BimanualAction], steps: int) -> List[Tuple[BimanualObs, BimanualAction]]:
+    data = []
+
+    obs = self.get_obs()
+    for _ in range(steps):
+      action = policy(obs)
+      data.append((obs, action))
+
+      obs = self.step(action)
+
+    return data
     
 
 def merge_xml_into_mujoco_scene(scene_path: Path, merge_paths: Sequence[Path]):

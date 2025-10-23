@@ -96,7 +96,9 @@ def extract_kinematic_info(
     # Calculate origin_pos: accumulate body positions from last joint to this joint
     # and add this joint's offset, minus the last joint's offset
     relative_joint_pos = pos_relative_to_last_joint + model.jnt_pos[joint_id]
+    relative_joint_quat = quat_relative_to_last_joint
     pos_relative_to_last_joint = -model.jnt_pos[joint_id]
+    quat_relative_to_last_joint = scipyrotation.from_quat([0.0, 0.0, 0.0, 1.0])
     # accumulated_pos = np.zeros(3)
     
     # Accumulate body positions from the body after the last joint to current body
@@ -123,7 +125,7 @@ def extract_kinematic_info(
         joint_limits=joint_limits,
         rotation_axis=rotation_axis,
         origin_pos=relative_joint_pos,
-        quat=tuple(quat_relative_to_last_joint.as_quat())
+        quat=tuple(relative_joint_quat.as_quat())
       )
     ]
     
@@ -142,10 +144,9 @@ def forward_kinematics(kinematic_chain: List[KinematicLink], joint_q: np.ndarray
   global_quat = np.zeros((len(kinematic_chain), 4))
   global_quat[:, -1] = 1
   for i, (link, q) in enumerate(zip(reversed(kinematic_chain), reversed(joint_q))):
-    rotation = scipyrotation.from_rotvec(q * np.array(link.rotation_axis))
-    global_pos[-i - 1:] = rotation.apply(global_pos[-i - 1:]) + np.array(link.origin_pos)
-    global_quat[-i - 1] = link.quat
+    rotation = scipyrotation.from_quat(link.quat) * scipyrotation.from_rotvec(q * np.array(link.rotation_axis))
     global_quat[-i - 1:] = (scipyrotation.from_quat(global_quat[-i - 1:]) * rotation).as_quat()
+    global_pos[-i - 1:] = rotation.apply(global_pos[-i - 1:]) + np.array(link.origin_pos)
   return global_pos, global_quat
 
 from robot_descriptions import aloha_mj_description
