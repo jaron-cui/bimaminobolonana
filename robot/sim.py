@@ -19,9 +19,9 @@ class BimanualObs:
   """
   An observation from a bimanual robot.
 
-  :param visual: RGB camera images, of shape (num_cameras, height, width, 3).
-  :param qpos: The positions of all joints, of shape (num_joints,).
-  :param qvel: The velocities of all joints, of shape (num_joints,).
+  :param visual: RGB camera images, of shape (num_cameras, height, width, 3), dtype np.float32, and in range [0.0, 1.0].
+  :param qpos: The positions of all joints, of shape (num_joints,) and dtype np.float32.
+  :param qvel: The velocities of all joints, of shape (num_joints,) and dtype np.float32.
   """
   visual: np.ndarray
   qpos: 'BimanualState'
@@ -361,15 +361,15 @@ class BimanualSim:
 
   def get_obs(self) -> BimanualObs:
     # extract camera images (num_cameras, height, width, 3)
-    visual_obs = np.zeros((len(self.renderers), self.camera_dims[0], self.camera_dims[1], 3))
+    visual_obs = np.zeros((len(self.renderers), self.camera_dims[0], self.camera_dims[1], 3), dtype=np.float32)
     for i, (camera_name, renderer) in enumerate(self.renderers):
       renderer.update_scene(self.data, camera=camera_name)
-      visual_obs[i] = renderer.render()
+      visual_obs[i] = renderer.render().astype(np.float32) / 255
     
     return BimanualObs(
       visual=visual_obs,
-      qpos=BimanualState(self.data.qpos[:JOINT_OBSERVATION_SIZE].copy()),
-      qvel=BimanualState(self.data.qvel[:JOINT_OBSERVATION_SIZE].copy())
+      qpos=BimanualState(self.data.qpos[:JOINT_OBSERVATION_SIZE].copy().astype(np.float32)),
+      qvel=BimanualState(self.data.qvel[:JOINT_OBSERVATION_SIZE].copy().astype(np.float32))
     )
 
   def step(self, action: np.ndarray | BimanualAction) -> BimanualObs:
