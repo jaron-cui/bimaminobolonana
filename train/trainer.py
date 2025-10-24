@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from robot.sim import BimanualObs, BimanualSim
-from robot.train_utils import Job, Logs
+from train.train_utils import Job, Logs
 
 
 class BimanualActor(nn.Module, abc.ABC):
@@ -45,7 +45,6 @@ class BCTrainer(Trainer):
         loss.backward()
 
         optimizer.step()
-
       if epoch % self.checkpoint_frequency == 0:
         self.job.save_checkpoint(model, 'bc-pretrain', epoch)
 
