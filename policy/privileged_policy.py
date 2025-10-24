@@ -50,8 +50,20 @@ class PrivilegedPolicy:
 
   def __call__(self, obs: BimanualObs) -> BimanualAction:
     action = self.subpolicies[self.policy_stage](obs, self.subpolicy_state[self.policy_stage])
-    self.previous_action = action
+    self.previous_action = action.copy()
     return action
+  
+  def succeeded(self, obs: BimanualObs) -> bool:
+    if self.policy_stage != 'done':
+      return False
+    
+    block_pos, _ = get_block_orientation(self.model, self.data, with_respect_to=self.left_base_position)
+
+    arm_joints_obs, kinematic_chain = slice(8, 14), self.right_kinematic_chain
+    joint_angles = obs.qpos.array[arm_joints_obs]
+    gripper_pos, _ = kinematics.augmented_forward(kinematic_chain, joint_angles, np.array([0.1, 0.0, 0.0]))
+
+    return np.linalg.norm(block_pos - gripper_pos).item() < 0.05
 
   def _left_greet_block(self, obs: BimanualObs, state: Dict) -> BimanualAction:
     target_pos, block_axes = get_block_orientation(self.model, self.data, with_respect_to=self.left_base_position)
@@ -88,6 +100,7 @@ class PrivilegedPolicy:
       target_pos,
       block_axes[1],
       end_effector_displacement=np.array([0.1, 0.0, 0.0]),
+      target_tolerance_distance=0.06,
       on_target_reached='left-grasp-block'
     )
   
@@ -107,6 +120,7 @@ class PrivilegedPolicy:
       target_pos,
       gripper_axis,
       end_effector_displacement=np.array([0.1, 0.0, 0.0]),
+      target_tolerance_distance=0.1,
       on_target_reached='right-greet-block'
     )
     action = self._inverse_kinematics_pass(
@@ -114,7 +128,7 @@ class PrivilegedPolicy:
       action,
       obs,
       {},
-      target_pos,
+      target_pos + np.array([0.0, 0.0, 0.1]),
       np.array([0.0, 1.0, 0.0]),
       end_effector_displacement=np.array([0.3, 0.0, 0.0])
     )
@@ -125,12 +139,13 @@ class PrivilegedPolicy:
     base_action = self.previous_action
 
     target_pos, block_axes = get_block_orientation(self.model, self.data, with_respect_to=self.right_base_position)
+    target_pos[2] = max(target_pos[2], 0.2)
     action = self._inverse_kinematics_pass(
       'right',
       base_action,
       obs,
       state,
-      target_pos,
+      target_pos + np.array([0.0, 0.0, 0.03]),
       block_axes[2],
       end_effector_displacement=np.array([0.2, 0.0, 0.0]),
       on_target_reached='right-approach-block'
@@ -144,14 +159,16 @@ class PrivilegedPolicy:
     base_action = self.previous_action
 
     target_pos, block_axes = get_block_orientation(self.model, self.data, with_respect_to=self.right_base_position)
+    target_pos[2] = max(target_pos[2], 0.2)
     action = self._inverse_kinematics_pass(
       'right',
       base_action,
       obs,
       state,
-      target_pos,
+      target_pos + np.array([0.0, 0.0, 0.01]),
       block_axes[2],
       end_effector_displacement=np.array([0.1, 0.0, 0.0]),
+      target_tolerance_distance=0.06,
       on_target_reached='right-grasp-block'
     )
     action.left_gripper = 0

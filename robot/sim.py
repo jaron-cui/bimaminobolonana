@@ -7,9 +7,10 @@ from xml.etree import ElementTree as ET
 import mujoco
 import numpy as np
 from robot_descriptions import aloha_mj_description
+from scipy.spatial.transform import Rotation as scipyrotation
 
 
-OBSERVATION_SIZE = 16
+JOINT_OBSERVATION_SIZE = 16
 ACTION_SIZE = 14
 
 
@@ -34,8 +35,11 @@ class BimanualState:
   Namely, the gripper is represented by each finger's position instead of a single value.
   """
   def __init__(self, array: np.ndarray | None = None):
-    self.array = np.zeros(OBSERVATION_SIZE) if array is None else array
-    assert self.array.shape == (OBSERVATION_SIZE,), f'Expected action of shape ({OBSERVATION_SIZE},), but got {self.array.shape}.'
+    self.array = np.zeros(JOINT_OBSERVATION_SIZE) if array is None else array
+    assert self.array.shape == (JOINT_OBSERVATION_SIZE,), f'Expected action of shape ({JOINT_OBSERVATION_SIZE},), but got {self.array.shape}.'
+
+  def to_approximate_action(self) -> 'BimanualAction':
+    return BimanualAction(np.concat((self.array[:7], self.array[8:15])))
 
   @property
   def left_waist(self) -> np.float64:
@@ -165,9 +169,6 @@ class BimanualState:
   def right_right_finger(self, v):
     self.array[15] = v
 
-  def to_approximate_action(self) -> 'BimanualAction':
-    return BimanualAction(np.concat((self.array[:7], self.array[8:15])))
-
 
 class BimanualAction:
   """
@@ -177,6 +178,9 @@ class BimanualAction:
   def __init__(self, array: np.ndarray | None = None):
     self.array = np.zeros(ACTION_SIZE) if array is None else array
     assert self.array.shape == (ACTION_SIZE,), f'Expected action of shape ({ACTION_SIZE},), but got {self.array.shape}.'
+
+  def copy(self) -> 'BimanualAction':
+    return BimanualAction(self.array.copy())
 
   @property
   def left_waist(self) -> np.float64:
@@ -350,7 +354,7 @@ class BimanualSim:
 
   def reset(self):
     mujoco.mj_resetData(self.model, self.data)
-    self.data.qpos[:OBSERVATION_SIZE] = self.initial_pose.array
+    self.data.qpos[:JOINT_OBSERVATION_SIZE] = self.initial_pose.array
     self.data.ctrl[:ACTION_SIZE] = self.initial_pose.to_approximate_action().array
     self.model, self.data = self.on_mujoco_init(self.model, self.data)
     mujoco.mj_forward(self.model, self.data)
@@ -364,8 +368,8 @@ class BimanualSim:
     
     return BimanualObs(
       visual=visual_obs,
-      qpos=BimanualState(self.data.qpos[:OBSERVATION_SIZE].copy()),
-      qvel=BimanualState(self.data.qvel[:OBSERVATION_SIZE].copy())
+      qpos=BimanualState(self.data.qpos[:JOINT_OBSERVATION_SIZE].copy()),
+      qvel=BimanualState(self.data.qvel[:JOINT_OBSERVATION_SIZE].copy())
     )
 
   def step(self, action: np.ndarray | BimanualAction) -> BimanualObs:
@@ -452,3 +456,17 @@ def merge_xml_into_mujoco_scene(scene_path: Path, merge_paths: Sequence[Path | s
     os.chdir(original_dir)
   
   return model
+
+
+# TODO: there may be a better place for this to live
+def randomize_block_position(model: mujoco.MjModel, data: mujoco.MjData):
+  body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'block')
+  for jnt_id in range(model.njnt):
+    if model.jnt_bodyid[jnt_id] == body_id:
+      qpos_start = model.jnt_qposadr[jnt_id]
+  random_pos = (np.random.random(3) * 2 - 1) * np.array([0.2, 0.3, 0.0]) + np.array([0.0, 0.0, 0.1])
+  angle = np.random.uniform(0, 2 * np.pi)
+  random_quat = scipyrotation.from_rotvec([0, 0, angle]).as_quat()
+  data.qpos[qpos_start:qpos_start+3] = random_pos
+  data.qpos[qpos_start+3:qpos_start+7] = np.roll(random_quat, 1)
+  return model, data

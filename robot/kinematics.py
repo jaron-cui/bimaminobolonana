@@ -165,7 +165,7 @@ def build_grasp_ik_objective(
     grasp_angle_error = np.abs(gripper_grasp_plane.dot(grasp_axis))
     pointing_angle_error = np.abs(gripper_direction.dot(target_direction))
     # upside_down_error = np.array([max(gripper_grasp_plane[1].dot(np.array([0, 0, -1])), 0)])
-    return np.concat([0.1 * pos_error, grasp_angle_error, pointing_angle_error])
+    return np.concat([10 * pos_error, grasp_angle_error, pointing_angle_error])
   return objective
 
 
