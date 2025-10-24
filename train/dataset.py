@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 import os
 from pathlib import Path
 from typing import List, Tuple
@@ -17,14 +18,20 @@ class BimanualDataset(torch.utils.data.Dataset):
     metadata = BimanualDatasetMetadata.from_file(data_directory, read_only=True)
     if metadata is None:
       raise FileNotFoundError(f'Dataset not found in {data_directory}.')
-    self._metadata = metadata
+    if metadata.sample_count != metadata.total_sample_count:
+      print(
+        f'Warning: The bimanual dataset loaded from `{data_directory}` is incomplete, '
+        f'with only {metadata.sample_count}/{metadata.total_sample_count} sample slots filled. '
+        'This dataset is perfectly usable, but its filespace is not completely utilized.'
+      )
+    self.metadata = metadata
 
-    memmap = self._metadata.memmap_data(overwrite=False)
+    memmap = self.metadata.memmap_data(overwrite=False)
     assert memmap is not None
     self._observation_array, self._action_array = memmap
 
   def __len__(self):
-    return self._metadata.sample_count
+    return self.metadata.sample_count
 
   def __getitem__(self, index) -> Tuple[np.ndarray, np.ndarray]:
     return self._observation_array[index], self._action_array[index]
@@ -32,7 +39,7 @@ class BimanualDataset(torch.utils.data.Dataset):
 
 class HumanReadableBimanualDataset(BimanualDataset):
   def __getitem__(self, index) -> Tuple[BimanualObs, BimanualAction]:
-    visual_shape = (2, self._metadata.camera_height, self._metadata.camera_width, 3)
+    visual_shape = (2, self.metadata.camera_height, self.metadata.camera_width, 3)
     visual_size = np.array(visual_shape).prod()
     observation = self._observation_array[index]
     action = self._action_array[index]
@@ -187,20 +194,36 @@ class BimanualDatasetMetadata:
       camera_width=int(parts[3][len('camera_width='):]),
       skip_frames=int(parts[4][len('skip_frames='):]),
       sample_count=int(parts[5][len('sample_count='):]),
-      rollout_lengths=np.load(rollout_length_file_path)[:int(parts[6][len('rollout_count='):])],
+      rollout_lengths=list(np.load(rollout_length_file_path)[:int(parts[6][len('rollout_count='):])]),
       read_only=read_only
     )
 
 
-def record_bc_data(
+def generate_bimanual_dataset(
   save_dir: Path,
   total_sample_count: int,
   max_steps_per_rollout: int,
   camera_dims: Tuple[int, int],
   skip_frames: int = 0,
-  overwrite: bool = False
+  resume: bool = True
 ):
-  metadata = BimanualDatasetMetadata.from_file(save_dir, read_only=False) if not overwrite else None
+  """
+  Generates a dataset of (BimanualObs, BimanualAction) samples by repeatedly rolling out BimanualSim
+  with the handcrafted policy.PrivilegedPolicy on the "Pass block" task.
+
+  :param save_dir: The directory in which to save the data.
+  :param total_sample_count: The number of samples for which space will be allocated.
+  :param max_steps_per_rollout: The maximum number of steps a given rollout will be allowed before designated a failure.
+  :param camera_dims: The (height, width) pixel resolution with which to save camera images.
+  :param skip_frames: The number of samples to skip between each sample recording.
+  :param resume: Whether we should resume from a previous call to this function instead of overwriting all existing samples.
+  """
+  print(f'Bimanual dataset save directory is set to `{save_dir}`.')
+  metadata = None
+  if resume:
+    metadata = BimanualDatasetMetadata.from_file(save_dir, read_only=False)
+    if metadata is not None:
+      print(f'Resuming from sample {metadata.sample_count}/{metadata.total_sample_count}.')
   if metadata is None:
     metadata = BimanualDatasetMetadata(
       save_dir=save_dir,
@@ -208,9 +231,10 @@ def record_bc_data(
       max_steps_per_rollout=max_steps_per_rollout,
       camera_height=camera_dims[0],
       camera_width=camera_dims[1],
-      skip_frames=skip_frames
+      skip_frames=skip_frames,
+      read_only=False
     )
-  memmap = metadata.memmap_data(overwrite=overwrite)
+  memmap = metadata.memmap_data(overwrite=not resume)
   if memmap is None:  # canceled
     return
   observation_array, action_array = memmap
@@ -243,8 +267,12 @@ def record_bc_data(
         if sample_index == total_sample_count:
           break
       metadata.update_data_pointers(new_rollout_length=rollout_length)
-    print(f' - Rollout {f"succeeded. Saved" if success else "failed. Discarded"} {rollout_length} samples.')
+    print(
+      f' - Rollout {f"succeeded. Saved" if success else "failed. Discarded"} '
+      f'{rollout_length} samples at {datetime.now()}. '
+      f'({metadata.sample_count}/{metadata.total_sample_count})'
+    )
     observation_buffer, action_buffer = [], []
-    if sample_index == total_sample_count:
+    if metadata.sample_count == total_sample_count:
       break
   print(f'Finished generating {total_sample_count} samples in {save_dir}.')
