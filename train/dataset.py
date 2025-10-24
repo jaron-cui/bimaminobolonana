@@ -12,6 +12,50 @@ from policy.privileged_policy import PrivilegedPolicy
 from robot.sim import BimanualAction, BimanualObs, BimanualSim, JOINT_OBSERVATION_SIZE, ACTION_SIZE, BimanualState, randomize_block_position
 
 
+@dataclass
+class TensorBimanualObs:
+  """
+  Tensor version of robot.sim.BimanualObs.
+
+  :param visual: RGB camera images, of shape (num_cameras, height, width, 3), dtype np.float32, and in range [0.0, 1.0].
+  :param qpos: The positions of all joints, of shape (num_joints,) and dtype np.float32.
+  :param qvel: The velocities of all joints, of shape (num_joints,) and dtype np.float32.
+  """
+  visual: torch.Tensor
+  qpos: 'TensorBimanualState'
+  qvel: 'TensorBimanualState'
+
+
+class TensorBimanualState:
+  """
+  Tensor version of robot.sim.BimanualState.
+  This is the low-level observation-space array used for `qpos` and `qvel`, larger than the action space used for `ctrl`.
+  Namely, the gripper is represented by each finger's position instead of a single value.
+  """
+  def __init__(self, array: torch.Tensor | None = None):
+    self.array = torch.zeros(JOINT_OBSERVATION_SIZE) if array is None else array
+    assert self.array.shape == (JOINT_OBSERVATION_SIZE,), f'Expected action of shape ({JOINT_OBSERVATION_SIZE},), but got {self.array.shape}.'
+
+  def to_approximate_action(self) -> 'TensorBimanualAction':
+    return TensorBimanualAction(torch.cat((self.array[:7], self.array[8:15])))
+
+
+class TensorBimanualAction:
+  """
+  A convenient wrapper class for a bimanual robot action array.
+  This is the array used for the action space of the robot.
+  """
+  def __init__(self, array: torch.Tensor | None = None):
+    self.array = torch.zeros(ACTION_SIZE) if array is None else array
+    assert self.array.shape == (ACTION_SIZE,), f'Expected action of shape ({ACTION_SIZE},), but got {self.array.shape}.'
+
+  def copy(self) -> 'TensorBimanualAction':
+    return TensorBimanualAction(self.array.clone())
+
+
+# TODO: Make this bimanual dataset use the tensor versions of dataclasses defined above.
+#       It should somehow interpret the .npy as torch tensors instead of numpy arrays.
+#       Preferably, we don't need to pollute the sim or dataset generation code with torch, and we have those still just use numpy.
 class BimanualDataset(torch.utils.data.Dataset):
   def __init__(self, data_directory: Path | str):
     super().__init__()
@@ -34,11 +78,15 @@ class BimanualDataset(torch.utils.data.Dataset):
     return self.metadata.sample_count
 
   def __getitem__(self, index) -> Tuple[np.ndarray, np.ndarray]:
+    if index >= self.metadata.sample_count:
+      raise IndexError()
     return self._observation_array[index], self._action_array[index]
 
 
 class HumanReadableBimanualDataset(BimanualDataset):
   def __getitem__(self, index) -> Tuple[BimanualObs, BimanualAction]:
+    if index >= self.metadata.sample_count:
+      raise IndexError()
     visual_shape = (2, self.metadata.camera_height, self.metadata.camera_width, 3)
     visual_size = np.array(visual_shape).prod()
     observation = self._observation_array[index]

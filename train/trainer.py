@@ -1,9 +1,9 @@
 import abc
 from typing import Callable
-import numpy as np
 import torch
 import torch.nn as nn
 from torch import Tensor
+from tqdm import tqdm
 
 from robot.sim import BimanualObs, BimanualSim
 from train.train_utils import Job, Logs
@@ -26,25 +26,37 @@ class BCTrainer(Trainer):
     self,
     dataloader,
     checkpoint_frequency: int,
-    job: Job
+    job: Job,
+    on_log_message: Callable[[str], None] = print  # TODO: not sure if I like this on_log_message thing I wrote for now
   ):
     self.dataloader = dataloader
     self.checkpoint_frequency = checkpoint_frequency
     self.job = job
+    self.log_message = on_log_message
   
   def train(self, model: BimanualActor, num_epochs: int):
-    # TODO: move much of the details here into config
+    # TODO: make the optimizer, criterion, etc... passed in via constructor args so we
+    #       can use hydra to instantiate BCTrainer with different settings
+    # TODO: route logs into self.job.debug_log_path file
+    self.log_message(f'Training model for {num_epochs} epochs.')
     optimizer = torch.optim.Adam(model.parameters())
     criterion = nn.MSELoss()
+
     for epoch in range(num_epochs):
-      for obs, action in self.dataloader:
+      epoch_loss = 0
+      for obs, action in tqdm(self.dataloader, desc=f'Epoch {epoch}'):
         predicted_action = model(obs)
-        loss = criterion(predicted_action, action)
+        # TODO: we'll want the (obs, action) from dataloader to use the tensor versions of dataclass defined
+        #       at the top of train/dataset.py instead of the robot/sim.py numpy versions
+        #       so that training is faster
+        loss = criterion(predicted_action, torch.from_numpy(action.array))
+        epoch_loss += loss.item()
 
         optimizer.zero_grad()
         loss.backward()
 
         optimizer.step()
+      self.log_message(f' - Epoch {epoch} loss: {epoch_loss:.4f}')
       if epoch % self.checkpoint_frequency == 0:
         self.job.save_checkpoint(model, 'bc-pretrain', epoch)
 
