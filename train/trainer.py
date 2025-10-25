@@ -1,17 +1,17 @@
 import abc
-from typing import Callable
+from typing import Callable, Tuple
 import torch
 import torch.nn as nn
-from torch import Tensor
 from tqdm import tqdm
 
-from robot.sim import BimanualObs, BimanualSim
-from train.train_utils import Job, Logs
+from robot.sim import BimanualSim
+from train.dataset import TensorBimanualAction, TensorBimanualObs
+from train.train_utils import Job
 
 
 class BimanualActor(nn.Module, abc.ABC):
   @abc.abstractmethod
-  def forward(self, obs: BimanualObs) -> Tensor:
+  def forward(self, obs: TensorBimanualObs) -> TensorBimanualAction:
     raise NotImplementedError()
 
 
@@ -24,7 +24,7 @@ class Trainer(abc.ABC):
 class BCTrainer(Trainer):
   def __init__(
     self,
-    dataloader,
+    dataloader: torch.utils.data.DataLoader[Tuple[TensorBimanualObs, TensorBimanualAction]],
     checkpoint_frequency: int,
     job: Job,
     on_log_message: Callable[[str], None] = print  # TODO: not sure if I like this on_log_message thing I wrote for now
@@ -39,17 +39,19 @@ class BCTrainer(Trainer):
     #       can use hydra to instantiate BCTrainer with different settings
     # TODO: route logs into self.job.debug_log_path file
     self.log_message(f'Training model for {num_epochs} epochs.')
+    device = next(model.parameters()).device
     optimizer = torch.optim.Adam(model.parameters())
     criterion = nn.MSELoss()
 
     for epoch in range(num_epochs):
       epoch_loss = 0
       for obs, action in tqdm(self.dataloader, desc=f'Epoch {epoch}'):
-        predicted_action = model(obs)
+        obs, action = obs.to(device), action.to(device)
+        predicted_action = model.forward(obs)
         # TODO: we'll want the (obs, action) from dataloader to use the tensor versions of dataclass defined
         #       at the top of train/dataset.py instead of the robot/sim.py numpy versions
         #       so that training is faster
-        loss = criterion(predicted_action, torch.from_numpy(action.array))
+        loss = criterion(predicted_action.array, action.array)
         epoch_loss += loss.item()
 
         optimizer.zero_grad()

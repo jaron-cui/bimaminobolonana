@@ -17,13 +17,43 @@ class TensorBimanualObs:
   """
   Tensor version of robot.sim.BimanualObs.
 
-  :param visual: RGB camera images, of shape (num_cameras, height, width, 3), dtype np.float32, and in range [0.0, 1.0].
-  :param qpos: The positions of all joints, of shape (num_joints,) and dtype np.float32.
-  :param qvel: The velocities of all joints, of shape (num_joints,) and dtype np.float32.
+  :param visual: RGB camera images, of shape (batch, num_cameras, height, width, 3), dtype np.float32, and in range [0.0, 1.0].
+  :param qpos: The positions of all joints, of shape (batch, num_joints) and dtype np.float32.
+  :param qvel: The velocities of all joints, of shape (batch, num_joints) and dtype np.float32.
   """
   visual: torch.Tensor
   qpos: 'TensorBimanualState'
   qvel: 'TensorBimanualState'
+
+  @property
+  def device(self) -> torch.device:
+    if not self.visual.device == self.qpos.device == self.qvel.device:
+      raise RuntimeError(
+        'Inconsistent TensorBimanualObs tensor devices: '
+        f'{self.visual.device}, {self.qpos.device}, {self.qvel.device}.'
+      )
+    return self.visual.device
+
+  def cpu(self) -> 'TensorBimanualObs':
+    return TensorBimanualObs(
+      visual=self.visual.cpu(),
+      qpos=self.qpos.cpu(),
+      qvel=self.qvel.cpu()
+    )
+
+  def cuda(self) -> 'TensorBimanualObs':
+    return TensorBimanualObs(
+      visual=self.visual.cuda(),
+      qpos=self.qpos.cuda(),
+      qvel=self.qvel.cuda()
+    )
+  
+  def to(self, *args, **kwargs) -> 'TensorBimanualObs':
+    return TensorBimanualObs(
+      visual=self.visual.to(*args, **kwargs),
+      qpos=self.qpos.to(*args, **kwargs),
+      qvel=self.qvel.to(*args, **kwargs)
+    )
 
 
 class TensorBimanualState:
@@ -33,11 +63,24 @@ class TensorBimanualState:
   Namely, the gripper is represented by each finger's position instead of a single value.
   """
   def __init__(self, array: torch.Tensor | None = None):
-    self.array = torch.zeros(JOINT_OBSERVATION_SIZE) if array is None else array
-    assert self.array.shape == (JOINT_OBSERVATION_SIZE,), f'Expected action of shape ({JOINT_OBSERVATION_SIZE},), but got {self.array.shape}.'
+    self.array = torch.zeros((1, JOINT_OBSERVATION_SIZE)) if array is None else array
+    assert self.array.shape[1] == JOINT_OBSERVATION_SIZE and len(self.array.shape) == 2
 
   def to_approximate_action(self) -> 'TensorBimanualAction':
-    return TensorBimanualAction(torch.cat((self.array[:7], self.array[8:15])))
+    return TensorBimanualAction(torch.cat((self.array[:, :7], self.array[:, 8:15]), dim=-1))
+  
+  @property
+  def device(self) -> torch.device:
+    return self.array.device
+  
+  def cpu(self) -> 'TensorBimanualState':
+    return TensorBimanualState(self.array.cpu())
+  
+  def cuda(self) -> 'TensorBimanualState':
+    return TensorBimanualState(self.array.cuda())
+  
+  def to(self, *args, **kwargs) -> 'TensorBimanualState':
+    return TensorBimanualState(self.array.to(*args, **kwargs))
 
 
 class TensorBimanualAction:
@@ -46,11 +89,24 @@ class TensorBimanualAction:
   This is the array used for the action space of the robot.
   """
   def __init__(self, array: torch.Tensor | None = None):
-    self.array = torch.zeros(ACTION_SIZE) if array is None else array
-    assert self.array.shape == (ACTION_SIZE,), f'Expected action of shape ({ACTION_SIZE},), but got {self.array.shape}.'
+    self.array = torch.zeros((1, ACTION_SIZE)) if array is None else array
+    assert self.array.shape[1] == ACTION_SIZE and len(self.array.shape) == 2
 
   def copy(self) -> 'TensorBimanualAction':
     return TensorBimanualAction(self.array.clone())
+  
+  @property
+  def device(self) -> torch.device:
+    return self.array.device
+  
+  def cpu(self) -> 'TensorBimanualAction':
+    return TensorBimanualAction(self.array.cpu())
+  
+  def cuda(self) -> 'TensorBimanualAction':
+    return TensorBimanualAction(self.array.cuda())
+  
+  def to(self, *args, **kwargs) -> 'TensorBimanualAction':
+    return TensorBimanualAction(self.array.to(*args, **kwargs))
 
 
 # TODO: Make this bimanual dataset use the tensor versions of dataclasses defined above.
@@ -72,32 +128,49 @@ class BimanualDataset(torch.utils.data.Dataset):
 
     memmap = self.metadata.memmap_data(overwrite=False)
     assert memmap is not None
-    self._observation_array, self._action_array = memmap
+    observation_array, action_array = memmap
+    self._observation_array = torch.from_numpy(observation_array)
+    self._action_array = torch.from_numpy(action_array)
 
   def __len__(self):
     return self.metadata.sample_count
 
-  def __getitem__(self, index) -> Tuple[np.ndarray, np.ndarray]:
+  def __getitem__(self, index) -> Tuple[torch.Tensor, torch.Tensor]:
     if index >= self.metadata.sample_count:
       raise IndexError()
-    return self._observation_array[index], self._action_array[index]
+    return self._observation_array[index:index + 1], self._action_array[index:index+ 1]
 
 
 class HumanReadableBimanualDataset(BimanualDataset):
-  def __getitem__(self, index) -> Tuple[BimanualObs, BimanualAction]:
+  def __getitem__(self, index) -> Tuple[TensorBimanualObs, TensorBimanualAction]:
     if index >= self.metadata.sample_count:
       raise IndexError()
-    visual_shape = (2, self.metadata.camera_height, self.metadata.camera_width, 3)
+    visual_shape = (1, 2, self.metadata.camera_height, self.metadata.camera_width, 3)
     visual_size = np.array(visual_shape).prod()
-    observation = self._observation_array[index]
-    action = self._action_array[index]
+    observation = self._observation_array[index:index + 1]
+    action = self._action_array[index:index + 1]
     return (
-      BimanualObs(
-        visual=observation[:visual_size].reshape(visual_shape),
-        qpos=BimanualState(observation[visual_size:visual_size + JOINT_OBSERVATION_SIZE]),
-        qvel=BimanualState(observation[visual_size + JOINT_OBSERVATION_SIZE:])
+      TensorBimanualObs(
+        visual=observation[:, :visual_size].reshape(visual_shape),
+        qpos=TensorBimanualState(observation[:, visual_size:visual_size + JOINT_OBSERVATION_SIZE]),
+        qvel=TensorBimanualState(observation[:, visual_size + JOINT_OBSERVATION_SIZE:])
       ),
-      BimanualAction(action)
+      TensorBimanualAction(action)
+    )
+  
+  @staticmethod
+  def collate_fn(
+    batch: List[Tuple[TensorBimanualObs, TensorBimanualAction]]
+  ) -> Tuple[TensorBimanualObs, TensorBimanualAction]:
+    return (
+      TensorBimanualObs(
+        visual=torch.cat([t[0].visual for t in batch], dim=0),
+        qpos=TensorBimanualState(torch.cat([t[0].qpos.array for t in batch], dim=0)),
+        qvel=TensorBimanualState(torch.cat([t[0].qvel.array for t in batch], dim=0))
+      ),
+      TensorBimanualAction(
+        array=torch.cat([t[1].array for t in batch], dim=0)
+      )
     )
 
 
