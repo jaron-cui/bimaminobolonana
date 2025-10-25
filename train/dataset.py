@@ -285,6 +285,9 @@ def generate_bimanual_dataset(
   memmap = metadata.memmap_data(overwrite=not resume)
   if memmap is None:  # canceled
     return
+  if metadata.sample_count == metadata.total_sample_count:
+    print(f'Dataset is already complete with {metadata.sample_count} samples.')
+    return
   observation_array, action_array = memmap
 
   observation_buffer: List[BimanualObs] = []
@@ -294,13 +297,11 @@ def generate_bimanual_dataset(
       policy = PrivilegedPolicy(sim.model, sim.data)
       success = False
       obs = sim.get_obs()
-      rollout_length = 0
       for sim_step in tqdm(range(max_steps_per_rollout), desc=f'Attempting rollout {metadata.rollout_count}.'):
         action = policy(obs)
         if sim_step % (skip_frames + 1) == 0:
           observation_buffer.append(obs)
           action_buffer.append(action.copy())
-          rollout_length += 1
         obs = sim.step(action)
         if policy.succeeded(obs):
           success = True
@@ -312,8 +313,9 @@ def generate_bimanual_dataset(
         observation_array[sample_index] = np.concat((observation.visual.flatten(), observation.qpos.array, observation.qvel.array))
         action_array[sample_index] = action.array
         sample_index += 1
-        if sample_index == total_sample_count:
+        if sample_index == metadata.total_sample_count:
           break
+      rollout_length = sample_index - metadata.sample_count
       metadata.update_data_pointers(new_rollout_length=rollout_length)
     print(
       f' - Rollout {f"succeeded. Saved" if success else "failed. Discarded"} '
