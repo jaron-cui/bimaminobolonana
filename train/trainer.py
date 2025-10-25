@@ -48,9 +48,6 @@ class BCTrainer(Trainer):
       for obs, action in tqdm(self.dataloader, desc=f'Epoch {epoch}'):
         obs, action = obs.to(device), action.to(device)
         predicted_action = model.forward(obs)
-        # TODO: we'll want the (obs, action) from dataloader to use the tensor versions of dataclass defined
-        #       at the top of train/dataset.py instead of the robot/sim.py numpy versions
-        #       so that training is faster
         loss = criterion(predicted_action.array, action.array)
         epoch_loss += loss.item()
 

@@ -109,9 +109,6 @@ class TensorBimanualAction:
     return TensorBimanualAction(self.array.to(*args, **kwargs))
 
 
-# TODO: Make this bimanual dataset use the tensor versions of dataclasses defined above.
-#       It should somehow interpret the .npy as torch tensors instead of numpy arrays.
-#       Preferably, we don't need to pollute the sim or dataset generation code with torch, and we have those still just use numpy.
 class BimanualDataset(torch.utils.data.Dataset):
   def __init__(self, data_directory: Path | str):
     super().__init__()
@@ -135,13 +132,6 @@ class BimanualDataset(torch.utils.data.Dataset):
   def __len__(self):
     return self.metadata.sample_count
 
-  def __getitem__(self, index) -> Tuple[torch.Tensor, torch.Tensor]:
-    if index >= self.metadata.sample_count:
-      raise IndexError()
-    return self._observation_array[index:index + 1], self._action_array[index:index+ 1]
-
-
-class HumanReadableBimanualDataset(BimanualDataset):
   def __getitem__(self, index) -> Tuple[TensorBimanualObs, TensorBimanualAction]:
     if index >= self.metadata.sample_count:
       raise IndexError()
