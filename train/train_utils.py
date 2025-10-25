@@ -74,6 +74,8 @@ class Logs:
     return jobs
   
   def create_new_job(self, tag: str) -> Job:
+    if '_' in tag:
+      raise ValueError(f'Job tag `{tag}` cannot contain underscores. Remove them or replace them with hyphens.')
     date = datetime.now()
     path = self.root_dir / f'{date.strftime(Logs.DATE_FORMAT)}_{tag}'
     if path.exists():
