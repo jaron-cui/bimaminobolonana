@@ -14,7 +14,7 @@ ImgOrPair = Union[Tensor, Tuple[Tensor, Tensor]]
 def _get_fuser(name: Optional[str], dim: int):
     if name is None:
         return None
-    from fusion import fuse_mean, fuse_max, ConcatMLP, GatedFusion, BilinearFusion
+    from encoder.fusion import fuse_mean, fuse_max, ConcatMLP, GatedFusion, BilinearFusion
     if name == "mean":
         return lambda a, b: fuse_mean(a, b)
     if name == "max":

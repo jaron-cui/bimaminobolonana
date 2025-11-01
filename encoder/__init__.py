@@ -65,6 +65,7 @@ def build_encoder(cfg: Dict[str, Any] | Any) -> MultiViewEncoder:
                 if hasattr(cfg, "pretrained")
                 else cfg.get("pretrained", False)
             ),
+            "ckpt_path": getattr(cfg, "ckpt_path", None) or cfg.get("ckpt_path", None),  
             "freeze": bool(
                 getattr(cfg, "freeze", None)
                 if hasattr(cfg, "freeze")

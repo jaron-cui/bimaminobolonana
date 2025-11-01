@@ -1,6 +1,7 @@
 name: pri3d
 variant: resnet50
 pretrained: true
+ckpt_path: "/home/zihan/bimaminobolonana/checkpoints/resnet50_pri3d_tv.pth" # please change to your local path
 freeze: true
 out_dim: 512
 # If you keep the backbone frozen but want a small learnable head:
@@ -8,3 +9,4 @@ out_dim: 512
 # If everything is frozen for a pure “frozen features” baseline:
 fuse: mean
 # NOTE: preprocess inputs with build_image_transform(kind="imagenet", size=224)
+device : "cuda"

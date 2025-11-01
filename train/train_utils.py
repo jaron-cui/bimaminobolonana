@@ -46,7 +46,8 @@ class Job:
   def save_checkpoint(self, model: nn.Module, training_stage: str, epoch: int) -> Path:
     checkpoint_path = self._checkpoint_path(training_stage, epoch)
     os.makedirs(checkpoint_path.parent, exist_ok=True)
-    torch.save(model, checkpoint_path)
+    # torch.save(model, checkpoint_path)
+    torch.save(model.state_dict(), checkpoint_path)
     return checkpoint_path
 
   def _checkpoint_path(self, training_stage: str, epoch: int) -> Path:

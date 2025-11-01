@@ -39,6 +39,7 @@ class Pri3DEncoder(MultiViewEncoder):
         self,
         variant: str = "resnet50",
         pretrained: bool = False,   # kept for config symmetry; ignored (weights=None)
+        ckpt_path=None,
         freeze: bool = False,
         out_dim: int = 512,
         fuse: Optional[str] = None,
@@ -47,6 +48,12 @@ class Pri3DEncoder(MultiViewEncoder):
         super().__init__(out_dim=out_dim, fuse=fuse)
         self.variant = variant
         self.backbone, feat_dim = _build_backbone(variant)
+
+        if pretrained and ckpt_path is not None:
+            print(f"[Pri3D] Loading pretrained weights from {ckpt_path}")
+            state_dict = torch.load(ckpt_path, map_location="cpu")
+            missing, unexpected = self.backbone.load_state_dict(state_dict, strict=False)
+            print(f"[Pri3D] Loaded with missing={len(missing)}, unexpected={len(unexpected)}")
 
         # Projector to a consistent feature size
         self.proj = nn.Identity() if feat_dim == out_dim else nn.Linear(feat_dim, out_dim, bias=False)
