@@ -13,7 +13,7 @@ _BACKBONES = {
     "resnet50":  ("resnet50", 2048),
 }
 
-def _build_backbone(variant: str) -> tuple[nn.Module, int]:
+def _build_backbone(variant: str, pretrained=False, ckpt_path=None) -> tuple[nn.Module, int]:
     if variant not in _BACKBONES:
         raise ValueError(f"Unknown Pri3D variant '{variant}'. Options: {list(_BACKBONES.keys())}")
     name, feat_dim = _BACKBONES[variant]
@@ -24,6 +24,21 @@ def _build_backbone(variant: str) -> tuple[nn.Module, int]:
     # (for ResNet, it's everything except the final 'fc')
     modules = list(net.children())[:-1]  # up to global avgpool
     backbone = nn.Sequential(*modules)   # outputs [B, C, 1, 1]
+
+    if pretrained and ckpt_path is not None:
+        print(f"[Pri3D] Loading pretrained weights from {ckpt_path}")
+        state_dict = torch.load(ckpt_path, map_location="cpu")
+        try:
+            missing, unexpected = net.load_state_dict(state_dict, strict=False)
+            print(f"[Pri3D] Loaded with missing={len(missing)}, unexpected={len(unexpected)}")
+        except RuntimeError:
+            print("[Pri3D] Warning: direct load to net failed, attempting load to backbone...")
+            missing, unexpected = backbone.load_state_dict(state_dict, strict=False)
+            print(f"[Pri3D] Loaded with missing={len(missing)}, unexpected={len(unexpected)}")
+
+    modules = list(net.children())[:-1]
+    backbone = nn.Sequential(*modules)
+    
     return backbone, feat_dim
 
 class Pri3DEncoder(MultiViewEncoder):
@@ -47,13 +62,7 @@ class Pri3DEncoder(MultiViewEncoder):
     ):
         super().__init__(out_dim=out_dim, fuse=fuse)
         self.variant = variant
-        self.backbone, feat_dim = _build_backbone(variant)
-
-        if pretrained and ckpt_path is not None:
-            print(f"[Pri3D] Loading pretrained weights from {ckpt_path}")
-            state_dict = torch.load(ckpt_path, map_location="cpu")
-            missing, unexpected = self.backbone.load_state_dict(state_dict, strict=False)
-            print(f"[Pri3D] Loaded with missing={len(missing)}, unexpected={len(unexpected)}")
+        self.backbone, feat_dim = _build_backbone(variant,pretrained=pretrained,ckpt_path=ckpt_path)
 
         # Projector to a consistent feature size
         self.proj = nn.Identity() if feat_dim == out_dim else nn.Linear(feat_dim, out_dim, bias=False)
