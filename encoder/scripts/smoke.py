@@ -1,7 +1,9 @@
 # scripts/smoke.py
 import os, sys, argparse
 from pathlib import Path
-ROOT = os.path.dirname(os.path.dirname(__file__)); sys.path.insert(0, ROOT)
+ROOT = Path(__file__).resolve().parents[2]   # …/bimaminobolonana
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import torch
 import yaml
@@ -36,7 +38,7 @@ def random_tensor_demo():
     out2 = enc2.encode(pair)
     print("[Pri3D]  left/right/fused:", out2["left"].shape, out2["right"].shape, out2.get("fused").shape)
 
-def image_demo(use_pretrained: bool):
+def clip_image_demo(use_pretrained: bool):
     print("=== Image demo (with transforms) ===")
     enc = build_encoder(load_cfg(pick_clip_cfg(use_pretrained)))
     # Prefer the encoder's own transform if it exposes one (Step 3 ClipEncoder does)
@@ -64,15 +66,44 @@ def pri3d_image_demo():
     out_p = enc_p.encode((x_left, x_right))
     print("[Pri3D-img] left/right/fused:", out_p["left"].shape, out_p["right"].shape, out_p.get("fused").shape)
 
+def pri3d_ckpt_demo(ckpt_override: str | None):
+    print("=== Pri3D pretrained demo (imagenet transforms) ===")
+    cfg_path = CFG_DIR / "encoder_pri3d_pretrained.yaml"
+    if not cfg_path.exists():
+        print("[Pri3D-ckpt] Skipped: configs/encoder_pri3d_pretrained.yaml not found.")
+        return
+
+    cfg = load_cfg(str(cfg_path))
+    if ckpt_override:
+        cfg["ckpt_path"] = ckpt_override
+
+    ckpt = cfg.get("ckpt_path")
+    if not ckpt or not Path(ckpt).expanduser().exists():
+        print(f"[Pri3D-ckpt] Skipped: checkpoint path missing or not found: {ckpt!r}")
+        return
+
+    enc = build_encoder(cfg)
+    tfm = build_image_transform(kind="imagenet", size=224)
+    left  = Image.new("RGB", (320, 240), color=(30, 30, 200))
+    right = Image.new("RGB", (240, 320), color=(30, 200, 30))
+    x_left  = prepare_batch(left,  transform=tfm)
+    x_right = prepare_batch(right, transform=tfm)
+    out = enc.encode((x_left, x_right))
+    print("[Pri3D-ckpt] left/right/fused:", out["left"].shape, out["right"].shape, out.get("fused").shape)
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pretrained", action="store_true", help="Use CLIP ViT-B/32 (openai) if config exists")
+    ap.add_argument("--pri3d", action="store_true", help="Run Pri3D pretrained demo")
+    ap.add_argument("--ckpt", type=str, default=None, help="Override Pri3D checkpoint path")
     args = ap.parse_args()
 
     random_tensor_demo()
-    image_demo(use_pretrained=args.pretrained)
+    clip_image_demo(use_pretrained=args.pretrained)
     pri3d_image_demo()
+    if args.pri3d:
+        pri3d_ckpt_demo(args.ckpt)
 
 if __name__ == "__main__":
     main()
