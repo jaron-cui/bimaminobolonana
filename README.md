@@ -1,5 +1,7 @@
 # Bimaminobolonana
 
+## Quickstart guide at quickstart_guide.ipynb
+
 ## Setup
 
 ### Install Dependencies
@@ -63,6 +65,8 @@ Our Pri3D baseline uses a torchvision ResNet (18/34/50) with **random init** as 
 - Config: `configs/encoder_pri3d_random.yaml`
 - Preprocessing: use `build_image_transform(kind="imagenet", size=224)`
 - API matches CLIP: `enc.encode((x_left, x_right))` → dict with `left`, `right`, `fused` (all B×512)
+Supports pretrained Pri3D by pointing ckpt_path to the authors’ ResNet-50 checkpoint; we load matching trunk layers and ignore extra keys.
+Pri3D (View + Geo): https://drive.google.com/file/d/1Whlny5aSH5tqD2Xe79Q7uUP1QD78Wj8t/view
 
 Example:
 ```python
