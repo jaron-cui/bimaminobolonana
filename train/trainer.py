@@ -34,14 +34,28 @@ class BCTrainer(Trainer):
     self.job = job
     self.log_message = on_log_message
   
-  def train(self, model: BimanualActor, num_epochs: int):
+  def train(self, model: BimanualActor, 
+            num_epochs: int, 
+            optimizer: torch.optim.Optimizer = None,
+            criterion: nn.Module = None):
     # TODO: make the optimizer, criterion, etc... passed in via constructor args so we
     #       can use hydra to instantiate BCTrainer with different settings
     # TODO: route logs into self.job.debug_log_path file
     self.log_message(f'Training model for {num_epochs} epochs.')
     device = next(model.parameters()).device
-    optimizer = torch.optim.Adam(model.parameters())
-    criterion = nn.MSELoss()
+    if optimizer is None:
+      optimizer = torch.optim.Adam(model.parameters())
+      self.log_message("[BCTrainer] Using default Adam optimizer")
+    else:
+      self.log_message("[BCTrainer] Using user-provided optimizer")
+
+    if criterion is None:
+      criterion = nn.MSELoss()
+      self.log_message("[BCTrainer] Using default MSE loss")
+    else:
+      self.log_message("[BCTrainer] Using user-provided loss function")
+    # optimizer = torch.optim.Adam(model.parameters())
+    # criterion = nn.MSELoss()
 
     for epoch in range(num_epochs):
       epoch_loss = 0
