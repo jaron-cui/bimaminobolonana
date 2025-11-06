@@ -2,7 +2,6 @@ import os
 import sys
 from pathlib import Path
 sys.path.append(str(Path(os.getcwd()).parent.absolute()))
-os.chdir("..") # change to repo root dir
 
 import torch
 import torch.nn as nn
@@ -29,16 +28,16 @@ print("Environment ready.")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Generating Training Data from Privilidged Policy
-dataset_dir_path = Path('bc-train-data-test')
-generate_bimanual_dataset(
-  save_dir=dataset_dir_path,
-  total_sample_count=10000,
-  max_steps_per_rollout=600,
-  skip_frames=2,
-  camera_dims=(128, 128),
-  resume=True
-)
+# Generating Training Data from Privilidged Policy, please do this offline
+# dataset_dir_path = Path('bc-train-data-test')
+# generate_bimanual_dataset(
+#   save_dir=dataset_dir_path,
+#   total_sample_count=10000,
+#   max_steps_per_rollout=600,
+#   skip_frames=2,
+#   camera_dims=(128, 128),
+#   resume=True
+# )
 
 dataset = BimanualDataset(Path("train/bc-train-data-test"))
 obs, act = dataset[0]
