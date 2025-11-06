@@ -78,10 +78,11 @@ class BimanualPri3DActor(nn.Module):
         out = self.mlp(x)
         return TensorBimanualAction(out)
 
-
+BATCH_SIZE = 64
+NUM_EPOCHS = 100
 dataset_dir_path = "train/bc-train-data-test"
 dataset = BimanualDataset(dataset_dir_path)
-dataloader = DataLoader(dataset, batch_size=64, collate_fn=BimanualDataset.collate_fn)
+dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=BimanualDataset.collate_fn)
 
 os.makedirs("out/training-pri3d", exist_ok=True)
 logs = Logs("out/training-pri3d")
@@ -89,4 +90,4 @@ job = logs.create_new_job(tag="pri3d-bc")
 
 model = BimanualPri3DActor().cuda()
 trainer = BCTrainer(dataloader, checkpoint_frequency=1, job=job)
-trainer.train(model, num_epochs=10)
+trainer.train(model, num_epochs=NUM_EPOCHS)
