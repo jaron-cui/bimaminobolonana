@@ -3,6 +3,11 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(os.getcwd()).parent.absolute()))
 
+
+current_file = Path(__file__).resolve()
+project_root = current_file.parent.parent
+
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -38,13 +43,16 @@ print(f"Using device: {device}")
 #   camera_dims=(128, 128),
 #   resume=True
 # )
-
-dataset = BimanualDataset(Path("train/bc-train-data-test"))
+abs_path = os.path.abspath("bc-train-data-test")
+dataset = BimanualDataset(abs_path)
 obs, act = dataset[0]
 
 class BimanualPri3DActor(nn.Module):
-    def __init__(self, encoder_cfg_path="configs/encoder_pri3d_pretrained.yaml",
-                 state_dim=32, hidden_dim=512, action_dim=14):
+    def __init__(self, 
+    encoder_cfg_path = str(project_root)+"/configs/encoder_pri3d_pretrained.yaml",
+    state_dim=32, 
+    hidden_dim=512, 
+    action_dim=14):
         super().__init__()
 
         # --- Load and freeze Pri3D encoder ---
@@ -78,8 +86,8 @@ class BimanualPri3DActor(nn.Module):
         return TensorBimanualAction(out)
 
 BATCH_SIZE = 64
-NUM_EPOCHS = 5
-dataset_dir_path = "train/bc-train-data-test"
+NUM_EPOCHS = 100
+dataset_dir_path = "bc-train-data-test"
 dataset = BimanualDataset(dataset_dir_path)
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=BimanualDataset.collate_fn)
 
