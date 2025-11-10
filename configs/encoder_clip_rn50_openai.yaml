@@ -1,0 +1,6 @@
+name: clip_vit
+model_name: RN50
+pretrained: openai
+out_dim: 512
+freeze: true
+fuse: mean
