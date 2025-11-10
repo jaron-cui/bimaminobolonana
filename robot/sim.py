@@ -9,9 +9,13 @@ import numpy as np
 from robot_descriptions import aloha_mj_description
 from scipy.spatial.transform import Rotation as scipyrotation
 
+from robot import kinematics
+
 
 JOINT_OBSERVATION_SIZE = 16
 ACTION_SIZE = 14
+RIGHT_KINEMATIC_CHAIN = kinematics.parse_kinematic_chain(aloha_mj_description.MJCF_PATH, 'right/base_link', 'right/gripper_base')
+LEFT_KINEMATIC_CHAIN = kinematics.parse_kinematic_chain(aloha_mj_description.MJCF_PATH, 'left/base_link', 'left/gripper_base')
 
 
 @dataclass
@@ -39,7 +43,10 @@ class BimanualState:
     assert self.array.shape == (JOINT_OBSERVATION_SIZE,), f'Expected action of shape ({JOINT_OBSERVATION_SIZE},), but got {self.array.shape}.'
 
   def to_approximate_action(self) -> 'BimanualAction':
-    return BimanualAction(np.concat((self.array[:7], self.array[8:15])))
+    action = BimanualAction(np.concat((self.array[:7], self.array[8:15])))
+    action.left_gripper = self.left_left_finger * 10
+    action.right_gripper = self.right_left_finger * 10
+    return action
 
   @property
   def left_waist(self) -> np.float64:
@@ -104,6 +111,14 @@ class BimanualState:
   @property
   def right_right_finger(self) -> np.float64:
     return self.array[15]
+  
+  @property
+  def left_arm(self) -> np.ndarray:
+    return self.array[:8]
+  
+  @property
+  def right_arm(self) -> np.ndarray:
+    return self.array[8:16]
   
   @left_waist.setter
   def left_waist(self, v):

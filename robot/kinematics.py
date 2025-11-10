@@ -1,13 +1,13 @@
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 import mujoco
 import numpy as np
 import scipy
 from scipy.spatial.transform import Rotation as scipyrotation
 
 
-@dataclass
+@dataclass(frozen=True)
 class KinematicLink:
   joint_name: str
   joint_limits: Tuple[float, float]
@@ -24,7 +24,7 @@ def parse_kinematic_chain(
   mujoco_xml_path: Path | str, 
   root_body_name: str, 
   end_effector_body_name: str
-) -> List[KinematicLink]:
+) -> Tuple[KinematicLink]:
   """
   Parse the kinematic chain from a root body to a descendant.
   Each link corresponds to a MuJoCo joint element. The origin position and quaternion of a link are relative to the
@@ -96,7 +96,7 @@ def parse_kinematic_chain(
   if not kinematic_chain:
      raise ValueError('No joints found in path from {root_body_name} to {end_effector_body_name}.')
   
-  return kinematic_chain
+  return tuple(kinematic_chain)
 
 
 def forward(kinematic_chain: List[KinematicLink], joint_q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -122,7 +122,7 @@ def forward(kinematic_chain: List[KinematicLink], joint_q: np.ndarray) -> Tuple[
 
 
 def inverse(
-  kinematic_chain: List[KinematicLink],
+  kinematic_chain: Sequence[KinematicLink],
   starting_joint_q: np.ndarray,
   end_effector_displacement: np.ndarray,
   target_pos: np.ndarray,
@@ -149,7 +149,7 @@ def inverse(
 
 
 def build_grasp_ik_objective(
-  kinematic_chain: List[KinematicLink],
+  kinematic_chain: Sequence[KinematicLink],
   end_effector_displacement: np.ndarray,
   target_pos: np.ndarray,
   grasp_axis: np.ndarray
@@ -170,11 +170,11 @@ def build_grasp_ik_objective(
 
 
 def augmented_forward(
-  kinematic_chain: List[KinematicLink],
+  kinematic_chain: Sequence[KinematicLink],
   joint_q: np.ndarray,
   end_effector_displacement: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray]:
-  augmented_kinematic_chain = kinematic_chain + [
+  augmented_kinematic_chain = list(kinematic_chain) + [
     KinematicLink(
       'end_effector',
       (0, 0),
