@@ -1,94 +1,94 @@
 import torch
-import torch.nn as nn
 import numpy as np
-import imageio
 from pathlib import Path
-from robot.sim import BimanualSim, BimanualObs, BimanualAction
-from train.dataset import TensorBimanualObs, TensorBimanualAction
-from train.trainer import BCTrainer
+import os
+from tqdm import tqdm
 
-import yaml
-from encoder import build_encoder
+from robot.sim import BimanualSim, randomize_block_position
+from robot.visualize import save_frames_to_video
 
-class BimanualPri3DActor(nn.Module):
-    def __init__(self, encoder_cfg_path="configs/encoder_pri3d_pretrained.yaml",
-                 state_dim=32, hidden_dim=512, action_dim=14,
-                 freeze_encoder=False):   
-        super().__init__()
+from train.dataset import TensorBimanualObs
+from train.dataset import TensorBimanualAction
+from models.bimanual_pri3d_actor import BimanualPri3DActor   
 
-        # --- Load Pri3D encoder ---
-        with open(encoder_cfg_path, "r") as f:
-            cfg = yaml.safe_load(f)
-        self.encoder = build_encoder(cfg)
+current_file = Path(__file__).resolve()
+project_root = current_file.parent
 
-        if freeze_encoder:
-            self.encoder.eval()
-            for p in self.encoder.parameters():
-                p.requires_grad = False
-        else:
-            self.encoder.train()
-            for p in self.encoder.parameters():
-                p.requires_grad = True
+# =============== CONFIG ==================
+CHECKPOINT = "/mnt/data/out/training-pri3d/110625-221758_pri3d-bc-unfrozen/checkpoint/bc-pretrain/95.pt" # Path to trained model checkpoint
+IMAGE_DIMS = (128, 128)
+MAX_STEPS = 600
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # --- Fusion MLP ---
-        self.mlp = nn.Sequential(
-            nn.Linear(512 + state_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, action_dim)
-        )
-
-    def forward(self, obs: TensorBimanualObs) -> TensorBimanualAction:
-        left_imgs  = obs.visual[:, 0].permute(0, 3, 1, 2)
-        right_imgs = obs.visual[:, 1].permute(0, 3, 1, 2)
-
-        feats = self.encoder.encode((left_imgs, right_imgs))
-        fused_feat = feats["fused"]
-
-        state_feat = torch.cat([obs.qpos.array, obs.qvel.array], dim=-1)
-
-        x = torch.cat([fused_feat, state_feat], dim=-1)
-        out = self.mlp(x)
-        return TensorBimanualAction(out)
-    
-ckpt_path = "out/training-pri3d/pri3d-bc/checkpoints/epoch_100.pt" # path to the trained checkpoint， change if needed
-model = BimanualPri3DActor().cuda()
-checkpoint = torch.load(ckpt_path, map_location="cuda")
-model.load_state_dict(checkpoint["model"])
+# Load model
+model = BimanualPri3DActor(
+    encoder_cfg_path=str(Path(project_root) / "configs/encoder_pri3d_pretrained.yaml"),
+    freeze_encoder=True
+).to(DEVICE)
+state_dict = torch.load(CHECKPOINT, map_location=DEVICE)
+model.load_state_dict(state_dict)
 model.eval()
-print("✅ Loaded policy from", ckpt_path)
+print(f"Loaded checkpoint: {CHECKPOINT}")
 
-sim = BimanualSim(camera_dims=(128, 128))   
+# Create MuJoCo simulator
+sim = BimanualSim(
+    merge_xml_files=['robot/block.xml'],
+    camera_dims=IMAGE_DIMS,
+    obs_camera_names=['wrist_cam_left', 'wrist_cam_right'],
+    on_mujoco_init=randomize_block_position
+)
+
+# Rollout storage
+left_frames, right_frames = [], []
+
 obs = sim.get_obs()
 
-# method to wrap the model into a policy function
-def policy(obs: BimanualObs) -> BimanualAction:
-    obs_tensor = TensorBimanualObs(
-        visual=torch.from_numpy(obs.visual).unsqueeze(0).to(torch.float32).cuda(),
-        qpos=torch.from_numpy(obs.qpos.array).unsqueeze(0).cuda(),
-        qvel=torch.from_numpy(obs.qvel.array).unsqueeze(0).cuda()
-    )
+# BC expects tensors
+def to_tensor_obs(obs):
+    visual = torch.tensor(obs.visual, dtype=torch.float32)[None].to(DEVICE)
+    if hasattr(obs.qpos, "array"):   
+        qpos_np = obs.qpos.array
+    else:                            
+        qpos_np = obs.qpos
 
+    if hasattr(obs.qvel, "array"):
+        qvel_np = obs.qvel.array
+    else:
+        qvel_np = obs.qvel
+
+    qpos = torch.tensor(qpos_np, dtype=torch.float32)[None].to(DEVICE)
+    qvel = torch.tensor(qvel_np, dtype=torch.float32)[None].to(DEVICE)
+
+    return TensorBimanualObs(visual, qpos, qvel)
+
+
+# Simulation rollout
+for step in tqdm(range(MAX_STEPS)):
+    # Save images for video
+    left_frames.append(obs.visual[0])
+    right_frames.append(obs.visual[1])
+
+    # Convert to model input
+    torch_obs = to_tensor_obs(obs)
+
+    # Predict next action
     with torch.no_grad():
-        pred_action = model.forward(obs_tensor)
+        action = model(torch_obs).array[0].cpu().numpy()
 
-    return BimanualAction(pred_action.array.squeeze().cpu().numpy())
+    # Step simulation
+    obs = sim.step(action)
 
-frames = []
-num_steps = 300 # number of steps to run
-for step in range(num_steps):
-    act = policy(obs)
-    obs = sim.step(act)
-    left, right = obs.visual
-    frame = np.concatenate([left, right], axis=1)    
-    frame_uint8 = (frame * 255).astype(np.uint8)
-    frames.append(frame_uint8)
-    print(f"Step {step+1}/{num_steps}")
+print("Rollout finished.")
 
-save_dir = Path("out/videos")
-save_dir.mkdir(parents=True, exist_ok=True)
-video_path = save_dir / "pri3d_rollout.mp4"
+# Save outputs
+os.makedirs("out/render-pri3d", exist_ok=True)
 
-imageio.mimsave(video_path, frames, fps=30)
-print(f"🎬 Video saved to {video_path}")
+left_path = "out/render-pri3d/left.mp4"
+right_path = "out/render-pri3d/right.mp4"
+
+save_frames_to_video(left_frames, left_path)
+save_frames_to_video(right_frames, right_path)
+
+print("Videos saved:")
+print(left_path)
+print(right_path)
