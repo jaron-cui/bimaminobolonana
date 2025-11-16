@@ -1,6 +1,22 @@
 # Bimaminobolonana
 
+Bimanual robot manipulation with visual encoders and ACT (Action Chunking Transformer) policy.
+
 ## Quickstart guide at quickstart_guide.ipynb
+
+## Policies
+
+### ACT (Action Chunking Transformer)
+Implementation of ACT from "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware" (Zhao et al., 2023).
+
+- **Location**: `policy/act/`
+- **Training**: `python scripts/train_act.py --config configs/policy_act.yaml --dataset_dir <path> --output_dir <path>`
+- **Documentation**: See `policy/act/README.md` and `ACT_INTEGRATION_GUIDE.md`
+
+### Privileged Policy
+Handcrafted policy using privileged simulation information for dataset generation.
+
+- **Location**: `policy/privileged_policy.py`
 
 ## Setup
 

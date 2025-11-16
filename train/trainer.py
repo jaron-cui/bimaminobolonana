@@ -4,7 +4,14 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from robot.sim import BimanualSim
+# Import MuJoCo-dependent modules conditionally (only needed for RL training, not BC)
+try:
+    from robot.sim import BimanualSim
+    MUJOCO_AVAILABLE = True
+except ImportError:
+    BimanualSim = None
+    MUJOCO_AVAILABLE = False
+
 from train.dataset import TensorBimanualAction, TensorBimanualObs
 from train.train_utils import Job
 
@@ -33,9 +40,9 @@ class BCTrainer(Trainer):
     self.checkpoint_frequency = checkpoint_frequency
     self.job = job
     self.log_message = on_log_message
-  
-  def train(self, model: BimanualActor, 
-            num_epochs: int, 
+
+  def train(self, model: BimanualActor,
+            num_epochs: int,
             optimizer: torch.optim.Optimizer = None,
             criterion: nn.Module = None):
     # TODO: make the optimizer, criterion, etc... passed in via constructor args so we
@@ -105,4 +112,3 @@ class RLTrainer(Trainer):
 
       if epoch % self.checkpoint_frequency == 0:
         self.job.save_checkpoint(model, 'rl-train', epoch)
-
