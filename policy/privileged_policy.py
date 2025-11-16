@@ -75,6 +75,7 @@ class PrivilegedPolicy:
       target_pos,
       block_axes[1],
       end_effector_displacement=np.array([0.16, 0.0, 0.0]),
+      target_tolerance_distance=0.05,
       on_target_reached='left-approach-block'
     )
     target_pos, _ = get_block_orientation(self.model, self.data, with_respect_to=self.right_base_position)
@@ -100,7 +101,7 @@ class PrivilegedPolicy:
       target_pos,
       block_axes[1],
       end_effector_displacement=np.array([0.1, 0.0, 0.0]),
-      target_tolerance_distance=0.06,
+      target_tolerance_distance=0.05,
       on_target_reached='left-grasp-block'
     )
   

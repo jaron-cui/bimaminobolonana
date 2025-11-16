@@ -152,20 +152,26 @@ def build_grasp_ik_objective(
   kinematic_chain: Sequence[KinematicLink],
   end_effector_displacement: np.ndarray,
   target_pos: np.ndarray,
-  grasp_axis: np.ndarray
+  target_grasp_axis: np.ndarray
 ):
   def objective(joint_q: np.ndarray):
     gripper_pos, gripper_quat = augmented_forward(kinematic_chain, joint_q, end_effector_displacement)
     gripper_grasp_plane = scipyrotation.from_quat(gripper_quat).apply(np.array([[1, 0, 0], [0, 0, 1]]))
-    gripper_direction = gripper_grasp_plane[0:1]
-    target_direction = target_pos - gripper_pos
-    target_direction /= np.linalg.norm(target_direction)
+    # gripper_direction = gripper_grasp_plane[0:1]
+    gripper_grasp_axis = np.cross(gripper_grasp_plane[0:1], gripper_grasp_plane[1:2])
+
+    base_to_target_direction = target_pos - kinematic_chain[0].origin_pos
+    base_to_target_direction /= np.linalg.norm(base_to_target_direction)
+    # end_effector_to_target_direction = target_pos - gripper_pos
+    # end_effector_to_target_direction /= np.linalg.norm(end_effector_to_target_direction)
 
     pos_error = gripper_pos - target_pos
-    grasp_angle_error = np.abs(gripper_grasp_plane.dot(grasp_axis))
-    pointing_angle_error = np.abs(gripper_direction.dot(target_direction))
+    grasp_angle_error = np.abs(gripper_grasp_plane.dot(target_grasp_axis))
+    # pointing_angle_error = np.abs(gripper_direction.dot(target_direction))
+    pointing_angle_error = np.abs(gripper_grasp_axis.dot(base_to_target_direction))
+    # pointing_angle_error = np.abs(gripper_direction.dot(end_effector_to_target_direction))
     # upside_down_error = np.array([max(gripper_grasp_plane[1].dot(np.array([0, 0, -1])), 0)])
-    return np.concat([10 * pos_error, grasp_angle_error, pointing_angle_error])
+    return np.concat([pos_error, grasp_angle_error, pointing_angle_error])
   return objective
 
 
