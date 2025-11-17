@@ -99,7 +99,7 @@ def parse_kinematic_chain(
   return tuple(kinematic_chain)
 
 
-def forward(kinematic_chain: List[KinematicLink], joint_q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def forward(kinematic_chain: Sequence[KinematicLink], joint_q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
   """
   Performs a forward kinematics pass.
 

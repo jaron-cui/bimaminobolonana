@@ -9,39 +9,29 @@ from robot import kinematics
 from robot.sim import BimanualAction, BimanualObs
 
 
-class PrivilegedPolicy:
+class PrivilegedPickupBlockPolicy:
   """
-  A handcrafted bimanual block-passing policy that uses kinematics with privileged simulation state information.
+  A handcrafted unimanual block pickup policy that uses kinematics with privileged simulation state information.
   """
   Stage = Literal[
     'left-greet-block',
     'left-approach-block',
     'left-grasp-block',
     'left-raise-block',
-    'right-greet-block',
-    'right-approach-block',
-    'right-grasp-block',
-    'left-release-block',
-    'right-retract-block',
     'done'
   ]
   def __init__(self, model: mujoco.MjModel, data: mujoco.MjData):
     self.model = model
     self.data = data
-    self.policy_stage: PrivilegedPolicy.Stage = 'left-greet-block'
-    self.subpolicies: Dict[PrivilegedPolicy.Stage, Callable[[BimanualObs, Dict], BimanualAction]] = {
+    self.policy_stage: PrivilegedPickupBlockPolicy.Stage = 'left-greet-block'
+    self.subpolicies: Dict[PrivilegedPickupBlockPolicy.Stage, Callable[[BimanualObs, Dict], BimanualAction]] = {
       'left-greet-block': self._left_greet_block,
       'left-approach-block': self._left_approach_block,
       'left-grasp-block': self._left_grasp_block,
       'left-raise-block': self._left_raise_block,
-      'right-greet-block': self._right_greet_block,
-      'right-approach-block': self._right_approach_block,
-      'right-grasp-block': self._right_grasp_block,
-      'left-release-block': self._left_release_block,
-      'right-retract-block': self._right_retract_block,
       'done': self._done,
     }
-    self.subpolicy_state: Dict[PrivilegedPolicy.Stage, Any] = {stage: {} for stage in get_args(PrivilegedPolicy.Stage)}
+    self.subpolicy_state: Dict[PrivilegedPickupBlockPolicy.Stage, Any] = {stage: {} for stage in get_args(PrivilegedPickupBlockPolicy.Stage)}
     self.left_kinematic_chain = kinematics.parse_kinematic_chain(aloha_mj_description.MJCF_PATH, 'left/base_link', 'left/gripper_base')
     self.right_kinematic_chain = kinematics.parse_kinematic_chain(aloha_mj_description.MJCF_PATH, 'right/base_link', 'right/gripper_base')
     self.left_base_position = data.xpos[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'left/base_link')]
@@ -122,7 +112,7 @@ class PrivilegedPolicy:
       gripper_axis,
       end_effector_displacement=np.array([0.1, 0.0, 0.0]),
       target_tolerance_distance=0.1,
-      on_target_reached='right-greet-block'
+      on_target_reached='done'
     )
     action = self._inverse_kinematics_pass(
       'right',
@@ -135,81 +125,11 @@ class PrivilegedPolicy:
     )
     action.left_gripper = 0
     return action
-    
-  def _right_greet_block(self, obs: BimanualObs, state: Dict) -> BimanualAction:
-    base_action = self.previous_action
-
-    target_pos, block_axes = get_block_orientation(self.model, self.data, with_respect_to=self.right_base_position)
-    target_pos[2] = max(target_pos[2], 0.2)
-    action = self._inverse_kinematics_pass(
-      'right',
-      base_action,
-      obs,
-      state,
-      target_pos + np.array([0.0, 0.0, 0.03]),
-      block_axes[2],
-      end_effector_displacement=np.array([0.2, 0.0, 0.0]),
-      on_target_reached='right-approach-block'
-    )
-    action.left_gripper = 0
-    action.right_gripper = 0.37
-
-    return action
-  
-  def _right_approach_block(self, obs: BimanualObs, state: Dict) -> BimanualAction:
-    base_action = self.previous_action
-
-    target_pos, block_axes = get_block_orientation(self.model, self.data, with_respect_to=self.right_base_position)
-    target_pos[2] = max(target_pos[2], 0.2)
-    action = self._inverse_kinematics_pass(
-      'right',
-      base_action,
-      obs,
-      state,
-      target_pos + np.array([0.0, 0.0, 0.01]),
-      block_axes[2],
-      end_effector_displacement=np.array([0.1, 0.0, 0.0]),
-      target_tolerance_distance=0.06,
-      on_target_reached='right-grasp-block'
-    )
-    action.left_gripper = 0
-    action.right_gripper = 0.37
-
-    return action
-  
-  def _right_grasp_block(self, _: BimanualObs, state: Dict) -> BimanualAction:
-    self._maintain_stage(state, steps=10, then='left-release-block')
-    action = self.previous_action
-    action.left_gripper = 0
-    action.right_gripper = 0
-    return action
-  
-  def _left_release_block(self, _: BimanualObs, state: Dict) -> BimanualAction:
-    self._maintain_stage(state, steps=10, then='right-retract-block')
-    action = self.previous_action
-    action.left_gripper = 0.37
-    action.right_gripper = 0
-    return action
-  
-  def _right_retract_block(self, obs: BimanualObs, state: Dict) -> BimanualAction:
-    target_pos, gripper_axis = np.array([0.2, 0.0, 0.4]), np.array([0.0, 1.0, 0.0])
-    action = self._inverse_kinematics_pass(
-      'right',
-      self.previous_action,
-      obs,
-      state,
-      target_pos,
-      gripper_axis,
-      end_effector_displacement=np.array([0.1, 0.0, 0.0]),
-      on_target_reached='done'
-    )
-    action.right_gripper = 0
-    return action
   
   def _done(self, _: BimanualObs, __: Dict) -> BimanualAction:
     return self.previous_action
 
-  def _maintain_stage(self, state: Dict, steps: int, then: 'PrivilegedPolicy.Stage'):
+  def _maintain_stage(self, state: Dict, steps: int, then: 'PrivilegedPickupBlockPolicy.Stage'):
     if 'steps' not in state:
       state['steps'] = 0
     state['steps'] += 1
@@ -227,7 +147,7 @@ class PrivilegedPolicy:
     *,
     target_tolerance_distance: float = 0.04,
     end_effector_displacement: np.ndarray | None = None,
-    on_target_reached: 'PrivilegedPolicy.Stage | None' = None
+    on_target_reached: 'PrivilegedPickupBlockPolicy.Stage | None' = None
   ) -> BimanualAction:
     if 'settling-steps' not in state:
       state['settling-steps'] = 0

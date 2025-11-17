@@ -2,14 +2,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import Callable, List, Tuple
 
+import mujoco
 import numpy as np
 import torch
 from tqdm import tqdm
 
-from policy.privileged_policy import PrivilegedPolicy
-from robot.sim import BimanualAction, BimanualObs, BimanualSim, JOINT_OBSERVATION_SIZE, ACTION_SIZE, BimanualState, randomize_block_position
+from robot.sim import BimanualAction, BimanualObs, BimanualSim, JOINT_OBSERVATION_SIZE, ACTION_SIZE
+from validate.evaluation import TaskEvaluator
 
 
 @dataclass
@@ -312,6 +313,9 @@ class BimanualDatasetMetadata:
 
 def generate_bimanual_dataset(
   save_dir: Path,
+  create_sim: Callable[[], BimanualSim],
+  create_privileged_policy: Callable[[mujoco.MjModel, mujoco.MjData], Callable[[BimanualObs], BimanualAction]],
+  create_task_evaluator: Callable[[], TaskEvaluator],
   total_sample_count: int,
   max_steps_per_rollout: int,
   camera_dims: Tuple[int, int],
@@ -356,19 +360,26 @@ def generate_bimanual_dataset(
   observation_buffer: List[BimanualObs] = []
   action_buffer: List[BimanualAction] = []
   while True:
-    with BimanualSim(merge_xml_files=['block.xml'], camera_dims=camera_dims, on_mujoco_init=randomize_block_position) as sim:
-      policy = PrivilegedPolicy(sim.model, sim.data)
+    task_evaluator = create_task_evaluator()
+    with create_sim() as sim:
+      policy = create_privileged_policy(sim.model, sim.data)
       success = False
       obs = sim.get_obs()
       for sim_step in tqdm(range(max_steps_per_rollout), desc=f'Attempting rollout {metadata.rollout_count}.'):
         action = policy(obs)
+
         if sim_step % (skip_frames + 1) == 0:
           observation_buffer.append(obs)
           action_buffer.append(action.copy())
-        obs = sim.step(action)
-        if policy.succeeded(obs):
+
+        task_status = task_evaluator.determine_status(sim.model, sim.data, obs, action)
+        if task_status == 'succeeded':
           success = True
           break
+        elif task_status == 'failed':
+          break
+
+        obs = sim.step(action)
     # save rollout samples
     if success:
       sample_index = metadata.sample_count
