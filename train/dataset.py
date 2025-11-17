@@ -9,16 +9,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-# NOTE: I don't like this conditional import clause. Can we get rid of it? - Jaron
-# Import MuJoCo-dependent modules conditionally (only needed for dataset generation, not training)
-try:
-    from robot.sim import BimanualAction, BimanualObs, BimanualSim, JOINT_OBSERVATION_SIZE, ACTION_SIZE
-    MUJOCO_AVAILABLE = True
-except ImportError:
-    # For training-only environments, define constants
-    JOINT_OBSERVATION_SIZE = 16
-    ACTION_SIZE = 14
-    MUJOCO_AVAILABLE = False
+from validate.evaluation import TaskEvaluator
+from robot.sim import BimanualAction, BimanualObs, BimanualSim, JOINT_OBSERVATION_SIZE, ACTION_SIZE
 
 
 @dataclass
@@ -220,7 +212,7 @@ class BimanualDatasetMetadata:
   def size_in_gigabytes(self) -> float:
     return self.total_sample_count * (self.observation_size + ACTION_SIZE) * 4 / 1e9
 
-  def memmap_data(self, overwrite: bool) -> Tuple[np.ndarray, np.ndarray] | None:
+  def memmap_data(self, overwrite: bool, force_allocate_storage_space: bool = False) -> Tuple[np.ndarray, np.ndarray] | None:
     if overwrite and self.read_only:
       raise ValueError('Cannot overwrite bimanual dataset in read-only mode.')
 
@@ -254,7 +246,7 @@ class BimanualDatasetMetadata:
     if overwrite or missing_data:
       if self.read_only:
         raise FileNotFoundError(f'Missing data files in {self.save_dir}.')
-      response = input(
+      response = 'y' if force_allocate_storage_space else input(
         f'This will allocate {self.size_in_gigabytes:.2f}GB in `{self.save_dir}`. '
         'Are you sure you want to proceed? (y/[n])'
       )
@@ -328,7 +320,8 @@ def generate_bimanual_dataset(
   max_steps_per_rollout: int,
   camera_dims: Tuple[int, int],
   skip_frames: int = 0,
-  resume: bool = True
+  resume: bool = True,
+  force_allocate_storage_space: bool = False
 ):
   """
   Generates a dataset of (BimanualObs, BimanualAction) samples by repeatedly rolling out BimanualSim
@@ -357,7 +350,7 @@ def generate_bimanual_dataset(
       skip_frames=skip_frames,
       read_only=False
     )
-  memmap = metadata.memmap_data(overwrite=not resume)
+  memmap = metadata.memmap_data(overwrite=not resume, force_allocate_storage_space=force_allocate_storage_space)
   if memmap is None:  # canceled
     return
   if metadata.sample_count == metadata.total_sample_count:
