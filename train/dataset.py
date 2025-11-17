@@ -328,11 +328,15 @@ def generate_bimanual_dataset(
   with the handcrafted policy.PrivilegedPolicy on the "Pass block" task.
 
   :param save_dir: The directory in which to save the data.
+  :param create_sim: A function called per rollout that creates the BimanualSim.
+  :param create_privileged_policy: A function called per rollout that creates the policy object.
+  :param create_task_evaluator: A function called per rollout that defines the criteria for task success or failure.
   :param total_sample_count: The number of samples for which space will be allocated.
   :param max_steps_per_rollout: The maximum number of steps a given rollout will be allowed before designated a failure.
   :param camera_dims: The (height, width) pixel resolution with which to save camera images.
   :param skip_frames: The number of samples to skip between each sample recording.
   :param resume: Whether we should resume from a previous call to this function instead of overwriting all existing samples.
+  :param force_allocate_storage_space: Whether we should skip the storage space allocation safety prompt. Use with caution!
   """
   print(f'Bimanual dataset save directory is set to `{save_dir}`.')
   metadata = None
@@ -392,6 +396,8 @@ def generate_bimanual_dataset(
           break
       rollout_length = sample_index - metadata.sample_count
       metadata.update_data_pointers(new_rollout_length=rollout_length)
+    else:
+      rollout_length = len(observation_buffer)
     print(
       f' - Rollout {f"succeeded. Saved" if success else "failed. Discarded"} '
       f'{rollout_length} samples at {datetime.now()}. '
