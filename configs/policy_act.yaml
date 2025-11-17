@@ -1,0 +1,50 @@
+# ACT Policy Configuration with CLIP Visual Encoder
+# Action Chunking Transformer for bimanual manipulation
+
+name: act
+
+# Visual Encoder Configuration (swappable)
+encoder:
+  name: clip_vit
+  model_name: ViT-B-32
+  pretrained: openai  # Use 'openai' for pretrained weights, null for random init
+  out_dim: 512
+  freeze: false  # Freeze encoder during ACT training
+  fuse: concat_mlp  # Fusion method for left/right cameras: mean, max, concat_mlp, gated, bilinear
+
+# ACT Architecture Hyperparameters
+chunk_size: 50              # Number of future actions to predict in each forward pass
+temporal_context: 3         # Number of past observations to use as context
+hidden_dim: 512             # Transformer hidden dimension (d_model)
+nheads: 8                   # Number of attention heads in transformer
+num_encoder_layers: 4       # Number of transformer encoder layers
+num_decoder_layers: 7       # Number of transformer decoder layers (ACT uses more decoder layers)
+dim_feedforward: 3200       # Dimension of feedforward network in transformer
+latent_dim: 32              # Dimension of CVAE latent variable
+dropout: 0.1                # Dropout rate in transformer
+
+# Training Hyperparameters
+kl_weight: 10.0             # Weight for KL divergence loss (controls latent regularization)
+lr: 1.0e-5                  # Learning rate (Adam optimizer)
+batch_size: 200               # Training batch size
+num_epochs: 150           # Number of training epochs
+action_loss: l1             # Action loss type: 'l1' or 'l2'
+
+# Validation & Checkpointing
+checkpoint_frequency: 10    # Save checkpoint every N epochs
+val_split: 0.1              # Fraction of data for validation
+
+# Inference Settings
+temporal_ensemble: true     # Use temporal ensembling during evaluation
+ensemble_window: 10         # Window size for temporal ensembling
+
+# Data Preprocessing
+# Note: Images are stored as 128x128 in dataset but automatically resized to 224x224 for CLIP
+# The ACT policy handles this resize internally using F.interpolate
+image_size: 224             # Target size for CLIP preprocessing (auto-resized from 128x128)
+preprocess_kind: clip       # 'clip' or 'imagenet' depending on encoder
+
+# Camera Configuration
+camera_names:
+  - wrist_cam_left
+  - wrist_cam_right

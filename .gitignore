@@ -3,11 +3,28 @@ __pycache__/
 *.pyc
 .env
 .venv
+venv/
+*.egg-info/
+
 # data / caches
 data/
 outputs/
 checkpoints/
 wandb/
+runs/
+
+# training artifacts
+bc-train-data-test/
+*.pth
+*.ckpt
+*.pt
+
 # os / editor
 .DS_Store
 .ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

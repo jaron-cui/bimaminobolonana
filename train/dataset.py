@@ -9,8 +9,16 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from robot.sim import BimanualAction, BimanualObs, BimanualSim, JOINT_OBSERVATION_SIZE, ACTION_SIZE
-from validate.evaluation import TaskEvaluator
+# NOTE: I don't like this conditional import clause. Can we get rid of it? - Jaron
+# Import MuJoCo-dependent modules conditionally (only needed for dataset generation, not training)
+try:
+    from robot.sim import BimanualAction, BimanualObs, BimanualSim, JOINT_OBSERVATION_SIZE, ACTION_SIZE
+    MUJOCO_AVAILABLE = True
+except ImportError:
+    # For training-only environments, define constants
+    JOINT_OBSERVATION_SIZE = 16
+    ACTION_SIZE = 14
+    MUJOCO_AVAILABLE = False
 
 
 @dataclass
@@ -48,7 +56,7 @@ class TensorBimanualObs:
       qpos=self.qpos.cuda(),
       qvel=self.qvel.cuda()
     )
-  
+
   def to(self, *args, **kwargs) -> 'TensorBimanualObs':
     return TensorBimanualObs(
       visual=self.visual.to(*args, **kwargs),
@@ -69,17 +77,17 @@ class TensorBimanualState:
 
   def to_approximate_action(self) -> 'TensorBimanualAction':
     return TensorBimanualAction(torch.cat((self.array[:, :7], self.array[:, 8:15]), dim=-1))
-  
+
   @property
   def device(self) -> torch.device:
     return self.array.device
-  
+
   def cpu(self) -> 'TensorBimanualState':
     return TensorBimanualState(self.array.cpu())
-  
+
   def cuda(self) -> 'TensorBimanualState':
     return TensorBimanualState(self.array.cuda())
-  
+
   def to(self, *args, **kwargs) -> 'TensorBimanualState':
     return TensorBimanualState(self.array.to(*args, **kwargs))
 
@@ -95,17 +103,17 @@ class TensorBimanualAction:
 
   def copy(self) -> 'TensorBimanualAction':
     return TensorBimanualAction(self.array.clone())
-  
+
   @property
   def device(self) -> torch.device:
     return self.array.device
-  
+
   def cpu(self) -> 'TensorBimanualAction':
     return TensorBimanualAction(self.array.cpu())
-  
+
   def cuda(self) -> 'TensorBimanualAction':
     return TensorBimanualAction(self.array.cuda())
-  
+
   def to(self, *args, **kwargs) -> 'TensorBimanualAction':
     return TensorBimanualAction(self.array.to(*args, **kwargs))
 
@@ -148,7 +156,7 @@ class BimanualDataset(torch.utils.data.Dataset):
       ),
       TensorBimanualAction(action)
     )
-  
+
   @staticmethod
   def collate_fn(
     batch: List[Tuple[TensorBimanualObs, TensorBimanualAction]]
@@ -186,36 +194,36 @@ class BimanualDatasetMetadata:
   @property
   def metadata_file_path(self) -> Path:
     return self.save_dir / 'metadata.txt'
-  
+
   @property
   def observation_file_path(self) -> Path:
     return self.save_dir / 'observations.npy'
-  
+
   @property
   def action_file_path(self) -> Path:
     return self.save_dir / 'actions.npy'
-  
+
   @property
   def rollout_length_file_path(self) -> Path:
     return self.save_dir / 'rollout_length.npy'
-  
+
   @property
   def observation_size(self) -> int:
     # 2 x image_size + qpos_size + qvel_size
     return 2 * (self.camera_height * self.camera_width * 3) + JOINT_OBSERVATION_SIZE + JOINT_OBSERVATION_SIZE
-  
+
   @property
   def action_size(self) -> int:
     return ACTION_SIZE
-  
+
   @property
   def size_in_gigabytes(self) -> float:
     return self.total_sample_count * (self.observation_size + ACTION_SIZE) * 4 / 1e9
-  
+
   def memmap_data(self, overwrite: bool) -> Tuple[np.ndarray, np.ndarray] | None:
     if overwrite and self.read_only:
       raise ValueError('Cannot overwrite bimanual dataset in read-only mode.')
-    
+
     # verify that any existing metadata file doesn't conflict with the way the dataset is being interpreted now
     existing_metadata = BimanualDatasetMetadata.from_file(self.save_dir, read_only=True)
     if existing_metadata is not None:
@@ -228,7 +236,7 @@ class BimanualDatasetMetadata:
       ]:
         if current != existing:
           raise ValueError(f'Bimanual dataset metadata values don\'t match: {field}=={existing}!={current}')
-    
+
     # check whether the dataset is missing files
     missing_data = False
     for path in [
@@ -241,7 +249,7 @@ class BimanualDatasetMetadata:
         missing_data = True
         if self.read_only:
           raise FileNotFoundError(f'Bimanual dataset is being accessed in read-only mode, but {path} is missing.')
-    
+
     # allocate array files if required
     if overwrite or missing_data:
       if self.read_only:
@@ -268,7 +276,7 @@ class BimanualDatasetMetadata:
     action_array = np.memmap(
       self.action_file_path, dtype=np.float32, mode=file_mode, shape=(self.total_sample_count, self.action_size))
     return observation_array, action_array
-  
+
   def update_data_pointers(self, new_rollout_length: int | None = None):
     if self.read_only:
       raise RuntimeError('Cannot update bimanual dataset pointers in read-only mode.')
@@ -294,7 +302,7 @@ class BimanualDatasetMetadata:
     rollout_length_file_path = Path(save_dir) / 'rollout_length.npy'
     if not metadata_file_path.exists() or not rollout_length_file_path:
       return None
-    
+
     with open(metadata_file_path, 'r') as file:
       parts = file.read().split(' ')
 

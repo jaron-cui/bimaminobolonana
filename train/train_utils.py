@@ -31,18 +31,18 @@ class Job:
   path: Path
   date: datetime
   tag: str
-  
+
   @property
   def config_path(self) -> Path:
     return self.path / 'config.yaml'
-  
+
   @property
   def debug_log_path(self) -> Path:
     return self.path / 'debug.log'
 
   def load_checkpoint(self, training_stage: str, epoch: int) -> nn.Module:
     return torch.load(self._checkpoint_path(training_stage, epoch))
-  
+
   def save_checkpoint(self, model: nn.Module, training_stage: str, epoch: int) -> Path:
     checkpoint_path = self._checkpoint_path(training_stage, epoch)
     os.makedirs(checkpoint_path.parent, exist_ok=True)
@@ -52,7 +52,7 @@ class Job:
 
   def _checkpoint_path(self, training_stage: str, epoch: int) -> Path:
     return self.path / f'checkpoint/{training_stage}/{epoch}.pt'
-  
+
   def __str__(self) -> str:
     return f'Job({self.path.name})'
 
@@ -64,7 +64,7 @@ class Logs:
     self.root_dir = Path(path)
     if not self.root_dir.exists():
       raise ValueError(f'Path {path} does not exist. Provide the absolute path to your training output directory.')
-    
+
   def jobs(self) -> List[Job]:
     jobs = []
     for path in glob.glob('*', root_dir=self.root_dir):
@@ -73,7 +73,7 @@ class Logs:
         continue
       jobs.append(job)
     return jobs
-  
+
   def create_new_job(self, tag: str) -> Job:
     if '_' in tag:
       raise ValueError(f'Job tag `{tag}` cannot contain underscores. Remove them or replace them with hyphens.')
