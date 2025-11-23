@@ -1,0 +1,34 @@
+name: act_visual_only
+
+encoder:
+  name: clip_vit
+  model_name: ViT-B-32
+  pretrained: openai
+  out_dim: 512
+  freeze: false
+  fuse: null
+
+chunk_size: 10
+temporal_context: 1
+hidden_dim: 512
+nheads: 8
+num_encoder_layers: 4
+num_decoder_layers: 7
+dim_feedforward: 3200
+latent_dim: 32
+dropout: 0.1
+
+kl_weight: 1.0
+lr: 1.0e-5
+batch_size: 128
+num_epochs: 150
+action_loss: l1
+
+checkpoint_frequency: 10
+val_split: 0.1
+
+image_size: 224
+preprocess_kind: clip
+
+camera_names:
+  - wrist_cam_left
