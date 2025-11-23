@@ -228,6 +228,8 @@ class BimanualDatasetMetadata:
       ]:
         if current != existing:
           raise ValueError(f'Bimanual dataset metadata values don\'t match: {field}=={existing}!={current}')
+        self.sample_count = existing_metadata.sample_count
+        self.rollout_lengths = existing_metadata.rollout_lengths
 
     # check whether the dataset is missing files
     missing_data = False
@@ -339,27 +341,23 @@ def generate_bimanual_dataset(
   :param force_allocate_storage_space: Whether we should skip the storage space allocation safety prompt. Use with caution!
   """
   print(f'Bimanual dataset save directory is set to `{save_dir}`.')
-  metadata = None
-  if resume:
-    metadata = BimanualDatasetMetadata.from_file(save_dir, read_only=False)
-    if metadata is not None:
-      print(f'Resuming from sample {metadata.sample_count}/{metadata.total_sample_count}.')
-  if metadata is None:
-    metadata = BimanualDatasetMetadata(
-      save_dir=save_dir,
-      total_sample_count=total_sample_count,
-      max_steps_per_rollout=max_steps_per_rollout,
-      camera_height=camera_dims[0],
-      camera_width=camera_dims[1],
-      skip_frames=skip_frames,
-      read_only=False
-    )
+  metadata = BimanualDatasetMetadata(
+    save_dir=save_dir,
+    total_sample_count=total_sample_count,
+    max_steps_per_rollout=max_steps_per_rollout,
+    camera_height=camera_dims[0],
+    camera_width=camera_dims[1],
+    skip_frames=skip_frames,
+    read_only=False
+  )
   memmap = metadata.memmap_data(overwrite=not resume, force_allocate_storage_space=force_allocate_storage_space)
   if memmap is None:  # canceled
     return
   if metadata.sample_count == metadata.total_sample_count:
     print(f'Dataset is already complete with {metadata.sample_count} samples.')
     return
+  if resume and metadata.sample_count > 0:
+    print(f'Resuming from sample {metadata.sample_count}/{metadata.total_sample_count}.')
   observation_array, action_array = memmap
 
   observation_buffer: List[BimanualObs] = []
