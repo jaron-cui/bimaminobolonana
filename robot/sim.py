@@ -474,12 +474,17 @@ def merge_xml_into_mujoco_scene(scene_path: Path, merge_paths: Sequence[Path | s
 
 
 # TODO: there may be a better place for this to live
-def randomize_block_position(model: mujoco.MjModel, data: mujoco.MjData):
+def randomize_block_position(
+  model: mujoco.MjModel,
+  data: mujoco.MjData,
+  max_x_deviation: float = 0.2,
+  max_y_deviation: float = 0.3
+):
   body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'block')
   for jnt_id in range(model.njnt):
     if model.jnt_bodyid[jnt_id] == body_id:
       qpos_start = model.jnt_qposadr[jnt_id]
-  random_pos = (np.random.random(3) * 2 - 1) * np.array([0.2, 0.3, 0.0]) + np.array([0.0, 0.0, 0.1])
+  random_pos = (np.random.random(3) * 2 - 1) * np.array([max_x_deviation, max_y_deviation, 0.0]) + np.array([0.0, 0.0, 0.1])
   angle = np.random.uniform(0, 2 * np.pi)
   random_quat = scipyrotation.from_rotvec([0, 0, angle]).as_quat()
   data.qpos[qpos_start:qpos_start+3] = random_pos
