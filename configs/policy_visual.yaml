@@ -20,8 +20,8 @@ dropout: 0.1
 
 kl_weight: 1.0
 lr: 1.0e-5
-batch_size: 128
-num_epochs: 150
+batch_size: 32
+num_epochs: 100
 action_loss: l1
 
 checkpoint_frequency: 10

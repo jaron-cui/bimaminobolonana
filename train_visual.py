@@ -18,11 +18,12 @@ from policy.act.policy_visual import VisualOnlyMLPPolicy
 # ============================================================
 
 CONFIG_PATH = "configs/policy_visual.yaml"  
-# DATASET_PATH = "D:/bimaminobolonana/bc-dataset-pickup"#"D:/bimaminobolonana/pickup-randomization0_05"
-DATASET_PATH = "D:/bimaminobolonana/datasets/passblock-dense"
+DATASET_PATH = "/mnt/data/pickup-randomization0_05"
 SAVE_DIR = "out/visual_only_mlp_bc"
 DEVICE = 'cuda'
 RELATIVE_ACTIONS = True
+
+print("Using device:", DEVICE)  
 
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -142,6 +143,7 @@ for epoch in range(NUM_EPOCHS):
         # break
         obs = obs.to(DEVICE)
 
+        obs.visual = obs.visual.to(DEVICE)
         action = action.to(DEVICE)
         if RELATIVE_ACTIONS:
             mask = torch.ones_like(action.array, dtype=torch.bool)

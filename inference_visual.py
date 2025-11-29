@@ -15,10 +15,10 @@ import yaml
 
 # =============== CONFIG ==================
 CONFIG_PATH = "configs/policy_visual.yaml"   
-CHECKPOINT  = "out/visual_only_mlp_bc/epoch_1.pt"  
+CHECKPOINT  = "out/visual_only_mlp_bc/epoch_100.pt"  
 
 IMAGE_DIMS = (128, 128)
-MAX_STEPS  = 600
+MAX_STEPS  = 10000
 DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 RELATIVE_ACTIONS = True
 
