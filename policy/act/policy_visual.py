@@ -13,6 +13,8 @@ class VisualOnlyMLPPolicy(nn.Module):
 
     def __init__(self, encoder_cfg: dict, hidden_dim: int = 512):
         super().__init__()
+        self.action_mean = nn.Buffer(torch.zeros(ACTION_SIZE))
+        self.action_std = nn.Buffer(torch.ones(ACTION_SIZE))
 
         self.encoder = build_encoder(encoder_cfg)
         visual_feat_dim = self.encoder.out_dim
@@ -42,7 +44,10 @@ class VisualOnlyMLPPolicy(nn.Module):
                             mode="bilinear", align_corners=False)
 
         feats = self.encoder.forward_single(left)   # shape = [B, out_dim]
+        # proprio = obs.qpos.array[:, 6:7]
 
+        # action = self.mlp(torch.cat((feats, proprio), dim=-1))
         action = self.mlp(feats)
+        action = action * self.action_std + self.action_mean
         
         return TensorBimanualAction(action)
