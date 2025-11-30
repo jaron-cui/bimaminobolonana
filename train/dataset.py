@@ -25,36 +25,52 @@ class TensorBimanualObs:
   visual: torch.Tensor
   qpos: 'TensorBimanualState'
   qvel: 'TensorBimanualState'
+  cam_translation_gt: torch.Tensor | None = None
+  block_relative_gt: torch.Tensor | None = None
 
   @property
   def device(self) -> torch.device:
-    if not self.visual.device == self.qpos.device == self.qvel.device:
-      raise RuntimeError(
-        'Inconsistent TensorBimanualObs tensor devices: '
-        f'{self.visual.device}, {self.qpos.device}, {self.qvel.device}.'
+      dev = self.visual.device
+
+      if self.qpos.device != dev:
+          raise RuntimeError(f"qpos is on {self.qpos.device}, visual is on {dev}")
+
+      if self.qvel.device != dev:
+          raise RuntimeError(f"qvel is on {self.qvel.device}, visual is on {dev}")
+
+      if self.cam_translation_gt is not None and self.cam_translation_gt.device != dev:
+          raise RuntimeError(
+              f"cam_translation_gt is on {self.cam_translation_gt.device}, visual is on {dev}"
+          )
+
+      if self.block_relative_gt is not None and self.block_relative_gt.device != dev:
+          raise RuntimeError(
+              f"block_relative_gt is on {self.block_relative_gt.device}, visual is on {dev}"
+          )
+
+      return dev
+
+  # ----------------------------------------------------
+  # cpu() / cuda() / to() 
+  # ----------------------------------------------------
+  def _apply(self, fn):
+      """Internal helper: apply fn to every tensor field."""
+      return TensorBimanualObs(
+          visual=fn(self.visual),
+          qpos=self.qpos.to(fn(self.visual).device),
+          qvel=self.qvel.to(fn(self.visual).device),
+          cam_translation_gt=None if self.cam_translation_gt is None else fn(self.cam_translation_gt),
+          block_relative_gt=None if self.block_relative_gt is None else fn(self.block_relative_gt),
       )
-    return self.visual.device
 
-  def cpu(self) -> 'TensorBimanualObs':
-    return TensorBimanualObs(
-      visual=self.visual.cpu(),
-      qpos=self.qpos.cpu(),
-      qvel=self.qvel.cpu()
-    )
+  def cpu(self):
+      return self._apply(lambda x: x.cpu())
 
-  def cuda(self) -> 'TensorBimanualObs':
-    return TensorBimanualObs(
-      visual=self.visual.cuda(),
-      qpos=self.qpos.cuda(),
-      qvel=self.qvel.cuda()
-    )
+  def cuda(self):
+      return self._apply(lambda x: x.cuda())
 
-  def to(self, *args, **kwargs) -> 'TensorBimanualObs':
-    return TensorBimanualObs(
-      visual=self.visual.to(*args, **kwargs),
-      qpos=self.qpos.to(*args, **kwargs),
-      qvel=self.qvel.to(*args, **kwargs)
-    )
+  def to(self, *args, **kwargs):
+      return self._apply(lambda x: x.to(*args, **kwargs))
 
 
 class TensorBimanualState:
