@@ -14,8 +14,8 @@ encoder:
   fuse: concat_mlp              # Learnable fusion: bilinear, gated, concat_mlp, or mean
 
 # ACT Architecture Hyperparameters
-chunk_size: 50              # Number of future actions to predict in each forward pass
-temporal_context: 3         # Number of past observations to use as context
+chunk_size: 20              # Number of future actions to predict in each forward pass
+temporal_context: 5         # Number of past observations to use as context
 hidden_dim: 512             # Transformer hidden dimension (d_model)
 nheads: 8                   # Number of attention heads in transformer
 num_encoder_layers: 4       # Number of transformer encoder layers

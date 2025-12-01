@@ -5,10 +5,18 @@ from typing import Any, Dict
 from .base import MultiViewEncoder
 from .clip_vit import ClipEncoder
 from .pri3d import Pri3DEncoder
+from .mae_bimanual import BimanualCrossMAE
+from .mae_clip import (
+    CLIPPatchExtractor,
+    BimanualCrossAttention,
+    MAEDecoder,
+    CrossAttentionBlock,
+)
 
 _REGISTRY = {
     "clip_vit": ClipEncoder,
     "pri3d": Pri3DEncoder,
+    "mae_bimanual": BimanualCrossMAE,
 }
 
 
@@ -65,7 +73,7 @@ def build_encoder(cfg: Dict[str, Any] | Any) -> MultiViewEncoder:
                 if hasattr(cfg, "pretrained")
                 else cfg.get("pretrained", False)
             ),
-            "ckpt_path": getattr(cfg, "ckpt_path", None) or cfg.get("ckpt_path", None),  
+            "ckpt_path": getattr(cfg, "ckpt_path", None) or cfg.get("ckpt_path", None),
             "freeze": bool(
                 getattr(cfg, "freeze", None)
                 if hasattr(cfg, "freeze")
@@ -77,6 +85,29 @@ def build_encoder(cfg: Dict[str, Any] | Any) -> MultiViewEncoder:
                 if hasattr(cfg, "fuse")
                 else cfg.get("fuse", None)
             ),
+        }
+        return cls(**kwargs)
+
+    if name == "mae_bimanual":
+        # Load from pretrained checkpoint
+        ckpt_path = getattr(cfg, "ckpt_path", None) or cfg.get("ckpt_path", None)
+        if ckpt_path:
+            return BimanualCrossMAE.from_pretrained(
+                ckpt_path,
+                out_dim=int(getattr(cfg, "out_dim", None) or cfg.get("out_dim", 512)),
+                fuse=getattr(cfg, "fuse", None) if hasattr(cfg, "fuse") else cfg.get("fuse", "mean"),
+            )
+        # Create new model
+        kwargs = {
+            "clip_model": getattr(cfg, "clip_model", None) or cfg.get("clip_model", "ViT-B-32"),
+            "pretrained": getattr(cfg, "pretrained", None) or cfg.get("pretrained", "openai"),
+            "out_dim": int(getattr(cfg, "out_dim", None) or cfg.get("out_dim", 512)),
+            "freeze_clip": bool(
+                getattr(cfg, "freeze_clip", None)
+                if hasattr(cfg, "freeze_clip")
+                else cfg.get("freeze_clip", False)
+            ),
+            "fuse": getattr(cfg, "fuse", None) if hasattr(cfg, "fuse") else cfg.get("fuse", "mean"),
         }
         return cls(**kwargs)
 
