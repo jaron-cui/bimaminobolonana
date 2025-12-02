@@ -46,6 +46,9 @@ class ACTTrainer:
         temporal_ensemble: bool = False,
         on_log_message: Callable[[str], None] = print,
         use_wandb: bool = False,
+        action_mean_path: str | None = None,
+        action_std_path: str | None = None,
+        use_relative: bool = True,
     ):
         """
         Initialize ACT trainer.
@@ -71,6 +74,22 @@ class ACTTrainer:
         self.temporal_ensemble = temporal_ensemble
         self.log_message = on_log_message
         self.use_wandb = use_wandb and WANDB_AVAILABLE
+        self.use_relative = use_relative
+
+        # Load action normalization stats if provided
+        self.action_mean = None
+        self.action_std = None
+        if action_mean_path is not None and action_std_path is not None:
+            try:
+                import numpy as _np
+                mean = _np.load(action_mean_path)
+                std = _np.load(action_std_path)
+                import torch as _torch
+                self.action_mean = _torch.from_numpy(mean).float()
+                self.action_std = _torch.from_numpy(std).float()
+            except Exception:
+                self.action_mean = None
+                self.action_std = None
 
         # Loss function for actions
         if action_loss_type == 'l1':
@@ -120,8 +139,46 @@ class ACTTrainer:
                 batch_size = context_feats.shape[0]
 
                 # CVAE with ground truth actions
-                actions_flat = action_chunk.array  # [batch, chunk_size, ACTION_SIZE]
-                actions_for_encoder = actions_flat.reshape(batch_size, -1)  # [batch, chunk_size * ACTION_SIZE]
+                actions_flat_raw = action_chunk.array  # [batch, chunk_size, ACTION_SIZE]
+
+                # Compute approximate action from last proprio (handle temporal or single-step obs)
+                qpos_arr = None
+                try:
+                    qpos_arr = obs_sequence.qpos.array
+                except Exception:
+                    qpos_arr = None
+
+                approx = None
+                if qpos_arr is not None:
+                    # qpos_arr may be [B, T, JOINT_OBS] or [B, JOINT_OBS]
+                    if qpos_arr.dim() == 3:
+                        last_qpos = qpos_arr[:, -1, :]
+                    else:
+                        last_qpos = qpos_arr
+                    # Build approx action: left joints 0:7, right 8:15
+                    approx = torch.cat([last_qpos[:, :7], last_qpos[:, 8:15]], dim=1)
+                    # gripper mapping as in other code
+                    try:
+                        approx[:, 6] = last_qpos[:, 6] * 10
+                        approx[:, 13] = last_qpos[:, 14] * 10
+                    except Exception:
+                        pass
+
+                # Build relative targets if requested
+                rel = actions_flat_raw
+                if self.use_relative and approx is not None:
+                    rel = actions_flat_raw - approx.unsqueeze(1)
+
+                # Normalize if stats available
+                if self.action_mean is not None and self.action_std is not None:
+                    mean = self.action_mean.to(rel.device).unsqueeze(0).unsqueeze(0)
+                    std = self.action_std.to(rel.device).unsqueeze(0).unsqueeze(0)
+                    std = torch.where(std == 0, torch.ones_like(std), std)
+                    actions_flat = (rel - mean) / std
+                else:
+                    actions_flat = rel
+
+                actions_for_encoder = actions_flat.reshape(batch_size, -1)
 
                 # Posterior
                 latent_input = torch.cat([context_feats, actions_for_encoder], dim=-1)
@@ -151,7 +208,7 @@ class ACTTrainer:
 
                 action_pred = model.action_head(hs)  # [batch, chunk_size, ACTION_SIZE]
 
-                # Action loss
+                # Action loss (compare in normalized/relative space if applicable)
                 action_loss = self.action_criterion(action_pred, actions_flat)
 
                 # KL divergence loss
@@ -252,8 +309,40 @@ class ACTTrainer:
 
                 action_pred = model.action_head(hs)
 
-                # Action loss only
-                loss = self.action_criterion(action_pred, action_chunk.array)
+                # Prepare validation targets similarly to training (relative + normalize)
+                actions_flat_raw = action_chunk.array
+                qpos_arr = None
+                try:
+                    qpos_arr = obs_sequence.qpos.array
+                except Exception:
+                    qpos_arr = None
+
+                approx = None
+                if qpos_arr is not None:
+                    if qpos_arr.dim() == 3:
+                        last_qpos = qpos_arr[:, -1, :]
+                    else:
+                        last_qpos = qpos_arr
+                    approx = torch.cat([last_qpos[:, :7], last_qpos[:, 8:15]], dim=1)
+                    try:
+                        approx[:, 6] = last_qpos[:, 6] * 10
+                        approx[:, 13] = last_qpos[:, 14] * 10
+                    except Exception:
+                        pass
+
+                rel = actions_flat_raw
+                if self.use_relative and approx is not None:
+                    rel = actions_flat_raw - approx.unsqueeze(1)
+
+                if self.action_mean is not None and self.action_std is not None:
+                    mean = self.action_mean.to(rel.device).unsqueeze(0).unsqueeze(0)
+                    std = self.action_std.to(rel.device).unsqueeze(0).unsqueeze(0)
+                    std = torch.where(std == 0, torch.ones_like(std), std)
+                    actions_flat = (rel - mean) / std
+                else:
+                    actions_flat = rel
+
+                loss = self.action_criterion(action_pred, actions_flat)
                 val_loss += loss.item()
                 num_batches += 1
 

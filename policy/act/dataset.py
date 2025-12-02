@@ -23,12 +23,15 @@ class TemporalBimanualDataset(Dataset):
     """
 
     def __init__(
-        self,
-        base_dataset: BimanualDataset,
-        temporal_context: int = 3,
-        chunk_size: int = 50,
-        pad_mode: str = 'repeat',  # 'repeat' or 'zero'
-    ):
+            self,
+            base_dataset: BimanualDataset,
+            temporal_context: int = 3,
+            chunk_size: int = 50,
+            pad_mode: str = 'repeat',  # 'repeat' or 'zero'
+            action_mean_path: str | None = None,
+            action_std_path: str | None = None,
+            use_relative: bool = True,
+        ):
         """
         Initialize temporal dataset wrapper.
 
@@ -42,6 +45,23 @@ class TemporalBimanualDataset(Dataset):
         self.temporal_context = temporal_context
         self.chunk_size = chunk_size
         self.pad_mode = pad_mode
+        # Normalization / relative action settings
+        self.use_relative = use_relative
+        self.action_mean = None
+        self.action_std = None
+        if action_mean_path is not None and action_std_path is not None:
+            import numpy as _np
+            try:
+                mean = _np.load(action_mean_path)
+                std = _np.load(action_std_path)
+                # convert to torch tensors (1D)
+                import torch as _torch
+                self.action_mean = _torch.from_numpy(mean).float()
+                self.action_std = _torch.from_numpy(std).float()
+            except Exception:
+                # If loading fails, leave as None and proceed without normalization
+                self.action_mean = None
+                self.action_std = None
 
         # Build episode boundaries
         self.episode_boundaries = self._build_episode_boundaries()
@@ -182,8 +202,32 @@ class TemporalBimanualDataset(Dataset):
         action_chunk = torch.stack(action_list, dim=1)  # [1, chunk_size, ACTION_SIZE]
         action_chunk = action_chunk.squeeze(0)  # [chunk_size, ACTION_SIZE]
 
+        # Convert to relative actions (optional) and normalize (optional)
+        # Compute approximate action from last context qpos
+        # qpos_seq: [temporal_context, JOINT_OBS_SIZE]
+        try:
+            # Create a TensorBimanualState for the last timestep and get its approx action
+            last_qpos = qpos_seq[-1].unsqueeze(0)  # [1, JOINT_OBS_SIZE]
+            approx_action = TensorBimanualState(last_qpos).to_approximate_action().array.squeeze(0)
+        except Exception:
+            approx_action = None
+
+        rel = action_chunk
+        if self.use_relative and approx_action is not None:
+            # subtract approx from all timesteps in chunk
+            rel = action_chunk - approx_action.unsqueeze(0)
+
+        normed = rel
+        if self.action_mean is not None and self.action_std is not None:
+            # broadcast mean/std over chunk dimension
+            mean = self.action_mean.unsqueeze(0)
+            std = self.action_std.unsqueeze(0)
+            # avoid division by zero
+            std = torch.where(std == 0, torch.ones_like(std), std)
+            normed = (rel - mean) / std
+
         # Wrap in TensorBimanualAction with chunk dimension
-        action_chunk_wrapped = TensorBimanualAction(action_chunk)
+        action_chunk_wrapped = TensorBimanualAction(normed)
 
         return obs_sequence, action_chunk_wrapped
 
@@ -253,6 +297,8 @@ def create_temporal_dataloader(
     batch_size: int = 8,
     shuffle: bool = True,
     num_workers: int = 0,
+    action_mean_path: str | None = None,
+    action_std_path: str | None = None,
 ) -> torch.utils.data.DataLoader:
     """
     Create a temporal dataloader for ACT training.
@@ -273,6 +319,8 @@ def create_temporal_dataloader(
         base_dataset=base_dataset,
         temporal_context=temporal_context,
         chunk_size=chunk_size,
+        action_mean_path=action_mean_path,
+        action_std_path=action_std_path,
     )
 
     dataloader = torch.utils.data.DataLoader(

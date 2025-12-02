@@ -26,7 +26,7 @@ dropout: 0.1                # Dropout rate in transformer
 # Training Hyperparameters
 kl_weight: 10.0             # Weight for KL divergence loss (controls latent regularization)
 lr: 1.0e-5                  # Learning rate (Adam optimizer)
-batch_size: 200               # Training batch size
+batch_size: 32               # Training batch size
 num_epochs: 150           # Number of training epochs
 action_loss: l1             # Action loss type: 'l1' or 'l2'
 

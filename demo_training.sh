@@ -2,6 +2,9 @@
 # Demo training script for ACT policy
 # This script shows you how to run ACT training with your dataset
 
+# how to run:
+# ./demo_training.sh /mnt/data/pickup-randomization0_05 runs/act_test_1
+
 set -e
 
 echo "================================================"
@@ -12,7 +15,7 @@ echo ""
 # Activate environment
 echo "1. Activating environment..."
 eval "$(conda shell.bash hook)"
-mamba activate act_training
+conda activate dev
 echo "✓ Environment activated: act_training"
 echo ""
 

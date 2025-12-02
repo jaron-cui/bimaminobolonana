@@ -74,9 +74,10 @@ class ACTPolicy(BimanualActor):
         self.visual_encoder: MultiViewEncoder = build_encoder(encoder_cfg)
         visual_feat_dim = self.visual_encoder.out_dim
 
-        # Proprioception encoder: qpos + qvel -> hidden_dim
-        # We have 2 * JOINT_OBSERVATION_SIZE for qpos and qvel
-        self.proprio_encoder = nn.Linear(2 * JOINT_OBSERVATION_SIZE, hidden_dim)
+        # Proprioception encoder: only gripper qpos -> hidden_dim
+        # Use minimal proprioception (only gripper states) to reduce dependency on arm positions
+        # Gripper indices: left=6, right=14 (2 values total from qpos)
+        self.proprio_encoder = nn.Linear(2, hidden_dim)  # Only 2 gripper values
 
         # Temporal context encoder: encodes the temporal_context observations
         # Input: temporal_context * (visual_feat_dim + hidden_dim)
@@ -126,6 +127,9 @@ class ACTPolicy(BimanualActor):
         self.latent_mean = None
         self.latent_logvar = None
         self.is_training = True
+
+        self.register_buffer("action_mean", torch.zeros(ACTION_SIZE))
+        self.register_buffer("action_std", torch.ones(ACTION_SIZE))
 
     def encode_observations(self, obs: TensorBimanualObs) -> torch.Tensor:
         """

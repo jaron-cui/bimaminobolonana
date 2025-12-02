@@ -29,7 +29,7 @@ current_file = Path(__file__).resolve()
 project_root = current_file.parent
 
 # =============== CONFIG ==================
-CHECKPOINT = "runs/act_policy/150.pt"  # Path to trained ACT checkpoint
+CHECKPOINT = "runs/act_test_1/checkpoint/act-train/20.pt"  # Path to trained ACT checkpoint
 CONFIG_PATH = "configs/policy_act.yaml"  # Path to ACT config
 MAX_STEPS = 600
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,7 +57,8 @@ print()
 # =============== ACT POLICY WRAPPER ==================
 class ACTPolicyWrapper:
     """
-    Wrapper for ACT policy that handles temporal context and action chunking.
+    Wrapper for ACT policy that handles temporal context and action chunking,
+    AND denormalizes the predicted actions.
     """
     def __init__(self, model, config, device):
         self.model = model
@@ -70,86 +71,139 @@ class ACTPolicyWrapper:
         # Temporal context buffer
         self.obs_history = deque(maxlen=self.temporal_context)
 
-        # Action chunk buffer for temporal ensembling
+        # Action chunk buffer
         self.action_buffer = deque(maxlen=self.ensemble_window)
 
+        # ============================================
+        # 🔥 Load action normalization from model
+        # ============================================
+        if hasattr(model, "action_mean") and hasattr(model, "action_std"):
+            self.action_mean = model.action_mean.detach().to(device)     # [A]
+            self.action_std = model.action_std.detach().to(device)       # [A]
+            print("✓ Loaded action normalization from checkpoint.")
+            print("  action_mean:", self.action_mean)
+            print("  action_std:", self.action_std)
+        else:
+            self.action_mean = None
+            self.action_std = None
+            print("⚠ No action normalization found in model → assuming raw actions.")
+
+    # Reset buffers
     def reset(self):
-        """Reset temporal context and action buffers."""
         self.obs_history.clear()
         self.action_buffer.clear()
 
+    # ====================================================
+    # 🔥 Main API: predict denormalized BimanualAction
+    # ====================================================
     def __call__(self, obs: BimanualObs) -> BimanualAction:
-        """
-        Predict action from observation using ACT policy.
 
-        Args:
-            obs: Current observation from simulator
-
-        Returns:
-            BimanualAction to execute
-        """
-        # Add current observation to history
+        # Update obs history
         self.obs_history.append(obs)
-
-        # If we don't have enough history yet, pad with current obs
         while len(self.obs_history) < self.temporal_context:
             self.obs_history.appendleft(obs)
 
-        # Convert to tensor format
+        # Convert to TensorBimanualObs
         tensor_obs = self._to_tensor_obs(list(self.obs_history))
 
-        # Predict action chunk
+        # --- Model forward ---
         with torch.no_grad():
-            action_chunk = self.model.predict_action_chunk(tensor_obs)  # [1, chunk_size, ACTION_SIZE]
+            action_chunk = self.model.predict_action_chunk(tensor_obs)  # shape: [1, chunk, A]
 
-        # Store action chunk for temporal ensembling
+        # Save chunk for temporal ensembling
         self.action_buffer.append(action_chunk.cpu())
 
-        # Temporal ensemble: average overlapping predictions
+        # ----------------------------
+        # Temporal ensembling (same as before)
+        # ----------------------------
         if len(self.action_buffer) > 0:
-            # For each buffer position i, we want action[i] from chunk[0]
-            # This gives us multiple predictions for the current timestep
             current_actions = []
             for i, chunk in enumerate(self.action_buffer):
                 step_in_chunk = len(self.action_buffer) - 1 - i
-                if step_in_chunk < chunk.shape[1]:  # Make sure we're within chunk bounds
+                if step_in_chunk < chunk.shape[1]:
                     current_actions.append(chunk[0, step_in_chunk])
 
             if current_actions:
-                # Average all predictions for current timestep
-                action_array = torch.stack(current_actions).mean(dim=0).numpy()
+                action_tensor = torch.stack(current_actions).mean(dim=0)  # [A]
             else:
-                # Fallback: use first action from latest chunk
-                action_array = action_chunk[0, 0].cpu().numpy()
+                action_tensor = action_chunk[0, 0].cpu()
         else:
-            # No ensemble, just use first action from chunk
-            action_array = action_chunk[0, 0].cpu().numpy()
+            action_tensor = action_chunk[0, 0].cpu()
+
+        # ====================================================
+        # 🔥 DENORMALIZE ACTION (from normalized relative to relative)
+        # ====================================================
+        normalized_action = action_tensor.clone()  # 保存用于调试
+        if self.action_mean is not None and self.action_std is not None:
+            action_tensor = (
+                action_tensor.to(self.device) * self.action_std + self.action_mean
+            ).cpu()
+
+        # ====================================================
+        # 🔥 CONVERT RELATIVE ACTION TO ABSOLUTE ACTION
+        # ====================================================
+        # Get current qpos from the last observation in history
+        current_obs = list(self.obs_history)[-1]
+        qpos = torch.from_numpy(current_obs.qpos.array).float()  # [16]
+        
+        # Build approximate "stay-still" action (same as training)
+        approx = torch.cat([
+            qpos[:7],      # left arm
+            qpos[8:15],    # right arm
+        ], dim=0)  # [14]
+        
+        approx[6] = qpos[6] * 10    # left gripper
+        approx[13] = qpos[14] * 10  # right gripper
+        
+        # Convert relative to absolute for arm joints
+        # relative = absolute - approx
+        # => absolute = relative + approx
+        absolute_action = action_tensor.clone()
+        
+        # Arm joints (indices 0-5, 7-12): convert from relative to absolute
+        absolute_action[:6] = action_tensor[:6] + approx[:6]
+        absolute_action[7:13] = action_tensor[7:13] + approx[7:13]
+        
+        # Gripper joints (indices 6, 13): already absolute, keep as is
+        # (These were not converted to relative during training)
+        absolute_action[6] = action_tensor[6]
+        absolute_action[13] = action_tensor[13]
+        
+        # ====================================================
+        # 🔥 GRIPPER THRESHOLDING: Binary open/close
+        # ====================================================
+        # Apply threshold to convert continuous gripper values to discrete open/close
+        # Left gripper (index 6)
+        absolute_action[6] = 0.0 if absolute_action[6] < 0.25 else 0.36
+        # Right gripper (index 13)
+        absolute_action[13] = 0.0 if absolute_action[13] < 0.25 else 0.36
+
+        # Convert to numpy for simulator
+        action_array = absolute_action.numpy()
 
         return BimanualAction(action_array)
 
+    # ====================================================
+    # Helper: Convert list of BimanualObs → TensorBimanualObs
+    # ====================================================
     def _to_tensor_obs(self, obs_list):
-        """Convert list of BimanualObs to TensorBimanualObs with temporal dimension."""
-        # Stack observations: [temporal_context, num_cameras, H, W, 3]
         visual = np.stack([o.visual for o in obs_list], axis=0)  # [T, C, H, W, 3]
-        visual = torch.from_numpy(visual).float().unsqueeze(0).to(self.device)  # [1, T, C, H, W, 3]
+        visual = torch.from_numpy(visual).float().unsqueeze(0).to(self.device)
 
-        # Stack qpos and qvel across temporal dimension: [1, T, joint_dim]
         qpos_arrays = [torch.from_numpy(o.qpos.array).float() for o in obs_list]
         qvel_arrays = [torch.from_numpy(o.qvel.array).float() for o in obs_list]
-        qpos = torch.stack(qpos_arrays, dim=0).unsqueeze(0).to(self.device)  # [1, T, joint_dim]
-        qvel = torch.stack(qvel_arrays, dim=0).unsqueeze(0).to(self.device)  # [1, T, joint_dim]
+        qpos = torch.stack(qpos_arrays).unsqueeze(0).to(self.device)
+        qvel = torch.stack(qvel_arrays).unsqueeze(0).to(self.device)
 
-        # Wrap in TensorBimanualState - but we need to reshape for temporal context
-        # The policy expects qpos/qvel to have .array attribute with shape [batch, temporal, ...]
-        class TemporalTensorBimanualState:
-            def __init__(self, tensor):
-                self.array = tensor  # [batch, temporal, joint_dim]
+        class TemporalState:
+            def __init__(self, arr): self.array = arr
 
         return TensorBimanualObs(
             visual=visual,
-            qpos=TemporalTensorBimanualState(qpos),
-            qvel=TemporalTensorBimanualState(qvel)
+            qpos=TemporalState(qpos),
+            qvel=TemporalState(qvel)
         )
+
 
 
 # Create policy wrapper
@@ -161,7 +215,8 @@ sim = BimanualSim(
     merge_xml_files=[Path('robot/block.xml')],
     camera_dims=(config.image_size, config.image_size),
     obs_camera_names=config.camera_names,
-    on_mujoco_init=randomize_block_position
+    # on_mujoco_init=randomize_block_position
+    on_mujoco_init=lambda m,d:(m,d)
 )
 print("✓ Simulator created!")
 print()

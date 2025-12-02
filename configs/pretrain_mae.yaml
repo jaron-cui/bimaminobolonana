@@ -1,0 +1,112 @@
+# MAE Pretraining Configuration for Bimanual Encoder
+# Uses CLIP ViT backbone with cross-attention between left/right views
+# Inspired by "Touch in the Wild" cross-modal attention approach
+
+# Data configuration
+data:
+  # Training data directories (can be single path or list)
+  train_dirs:
+    - pretrain_encoder_data
+  # Validation split ratio
+  val_ratio: 0.1
+  # Image size (CLIP expects 224x224)
+  img_size: 224
+  # Apply augmentation during training
+  augment: true
+  # DataLoader settings
+  batch_size: 420
+  num_workers: 4
+
+# Encoder configuration (CLIP ViT backbone)
+encoder:
+  # CLIP model variant
+  # - ViT-B-32: patch_size=32, 7x7=49 patches (coarse)
+  # - ViT-B-16: patch_size=16, 14x14=196 patches (finer, recommended)
+  # - ViT-L-14: patch_size=14, 16x16=256 patches (largest)
+  clip_model: "ViT-B-16"
+  # Pretrained weights source
+  pretrained: "openai"
+  # Whether to freeze CLIP backbone (false = fine-tune)
+  freeze_clip: false
+  # Output dimension for policy (matches existing ClipEncoder)
+  out_dim: 512
+
+# Cross-attention configuration
+cross_attention:
+  # Number of cross-attention layers
+  num_layers: 2
+  # Number of attention heads
+  num_heads: 12
+
+# Decoder configuration (lightweight for MAE)
+decoder:
+  # Decoder embedding dimension
+  embed_dim: 256
+  # Number of decoder transformer layers
+  depth: 4
+  # Number of attention heads
+  num_heads: 4
+
+# MAE training configuration
+mae:
+  # Mask ratio (fraction of patches to mask)
+  mask_ratio: 0.75
+  # Normalize target pixels by patch variance
+  norm_pix_loss: true
+  
+  # Cross-View Completion Mode (recommended for bimanual setup)
+  # When true: randomly mask ONE view, keep the other fully visible
+  # The model must use the visible view to reconstruct the masked view
+  # This forces learning of cross-view correspondence
+  #
+  # Training examples:
+  #   Case A: Left masked (75%), Right visible -> Reconstruct Left
+  #   Case B: Left visible, Right masked (75%) -> Reconstruct Right
+  #
+  # Benefits:
+  #   - Forces cross-view geometric understanding
+  #   - More meaningful cross-attention (full reference available)
+  #   - Harder task = better representations
+  cross_view_mode: true
+
+# Optimization configuration
+training:
+  # Number of epochs
+  epochs: 100
+  # Base learning rate (for decoder, cross-attention, etc.)
+  learning_rate: 1.0e-4
+  # Learning rate for CLIP backbone (lower for fine-tuning)
+  clip_lr: 1.0e-5
+  # Weight decay
+  weight_decay: 0.05
+  # Warmup epochs
+  warmup_epochs: 10
+  # Gradient clipping max norm
+  grad_clip: 1.0
+  # Optimizer betas
+  betas: [0.9, 0.95]
+  # Learning rate schedule
+  lr_schedule: cosine
+
+# Checkpointing
+checkpoint:
+  # Save directory
+  save_dir: checkpoints/mae_pretrain
+  # Save every N epochs
+  save_every: 10
+  # Keep only last N checkpoints
+  keep_last: 3
+
+# Logging
+logging:
+  # Use wandb for logging
+  use_wandb: true
+  # WandB project name
+  wandb_project: bimaminobolonana-mae
+  # WandB run name (null = auto-generated)
+  wandb_name: null
+  # Log gradient norm every N steps (for training health monitoring)
+  # Note: loss, lr, epoch are logged every step
+  log_every: 50
+  # Visualize reconstructions every N epochs
+  vis_every: 5
