@@ -318,6 +318,7 @@ class BimanualSim:
     camera_dims: Tuple[int, int] = (480, 540),
     obs_camera_names: Sequence[str] = ('wrist_cam_left', 'wrist_cam_right'),
     merge_xml_files: Sequence[Path | str] = tuple(),
+    sky_color: np.ndarray | None = None,
     on_mujoco_init: Callable[[mujoco.MjModel, mujoco.MjData], Tuple[mujoco.MjModel, mujoco.MjData]] = lambda m, d: (m, d)
   ):
     """
@@ -328,6 +329,7 @@ class BimanualSim:
     :param camera_dims: The pixel (height, width) of the visual observations taken from each camera.
     :param obs_camera_names: The names of the cameras in the MuJoCo XML schema that will be used to render the visual observations.
     :param merge_xml_files: XML files to merge into the scene, such as those containing task-specific objects.
+    :param sky_color: A numpy array representing the RGBA values with which to override the sky color. Light blue would be np.array([0.6, 0.8, 1.0, 1.0]).
     :param on_mujoco_init: General-purpose function called after MuJoCo initialization to modify the model and data.
     """
     # set default pose
@@ -347,7 +349,7 @@ class BimanualSim:
     self.on_mujoco_init = on_mujoco_init
 
     # init mujoco
-    self.model: mujoco.MjModel = merge_xml_into_mujoco_scene(Path(aloha_mj_description.MJCF_PATH), merge_xml_files)
+    self.model: mujoco.MjModel = merge_xml_into_mujoco_scene(Path(aloha_mj_description.MJCF_PATH), merge_xml_files, sky_color)
     self.data: mujoco.MjData = mujoco.MjData(self.model)
 
     self.substeps = substeps
@@ -432,7 +434,7 @@ class BimanualSim:
     return data
     
 
-def merge_xml_into_mujoco_scene(scene_path: Path, merge_paths: Sequence[Path | str]):
+def merge_xml_into_mujoco_scene(scene_path: Path, merge_paths: Sequence[Path | str], sky_color: np.ndarray | None = None):
   # cache current directory
   original_dir = os.getcwd()
   
@@ -463,6 +465,12 @@ def merge_xml_into_mujoco_scene(scene_path: Path, merge_paths: Sequence[Path | s
         new_body = ET.fromstring(ET.tostring(body))
         scene_worldbody.append(new_body)
     
+    if sky_color is not None:
+      color_string = ' '.join([f'{v.item():4f}' for v in sky_color])
+      skybox = [element for element in scene_root.findall('asset/texture') if element.get('type') == 'skybox'][0]
+      skybox.set('rgb1', color_string)
+      skybox.set('rgb2', color_string)
+
     # compile
     xml_string = ET.tostring(scene_root, encoding='unicode')
     model = mujoco.MjModel.from_xml_string(xml_string)
