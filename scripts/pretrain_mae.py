@@ -119,6 +119,9 @@ def visualize_reconstruction(
 ) -> Optional[Dict]:
     """
     Visualize MAE reconstructions.
+
+    For cross_view_mode: shows both cases (left masked, right masked).
+    For standard mode: shows both views masked together.
     """
     try:
         import matplotlib.pyplot as plt
@@ -131,47 +134,105 @@ def visualize_reconstruction(
         left_img = batch["left_img"][:4].cuda()
         right_img = batch["right_img"][:4].cuda()
 
-        result = model.get_reconstruction(left_img, right_img)
+        if model.cross_view_mode:
+            # For cross-view mode, show BOTH cases
+            result_mask_left = model.get_reconstruction(left_img, right_img, force_mask_view="left")
+            result_mask_right = model.get_reconstruction(left_img, right_img, force_mask_view="right")
 
-    # Denormalize for visualization
-    orig_left = denormalize_clip(result["original_left"]).cpu()
-    orig_right = denormalize_clip(result["original_right"]).cpu()
-    masked_left = denormalize_clip(result["masked_left"]).cpu()
-    masked_right = denormalize_clip(result["masked_right"]).cpu()
-    recon_left = result["recon_left"].cpu().clamp(0, 1)
-    recon_right = result["recon_right"].cpu().clamp(0, 1)
+            # Create larger figure for cross-view mode (showing both cases)
+            fig, axes = plt.subplots(4, 8, figsize=(24, 12))
 
-    # Create figure
-    fig, axes = plt.subplots(4, 6, figsize=(18, 12))
+            for i in range(4):
+                # Case 1: LEFT masked, RIGHT visible -> reconstruct LEFT
+                orig_left = denormalize_clip(result_mask_left["original_left"][i:i+1]).cpu()[0]
+                orig_right = denormalize_clip(result_mask_left["original_right"][i:i+1]).cpu()[0]
+                masked_left = denormalize_clip(result_mask_left["masked_left"][i:i+1]).cpu()[0]
+                recon_left = result_mask_left["recon_left"][i].cpu().clamp(0, 1)
 
-    for i in range(4):
-        # Left view: original, masked, reconstructed
-        axes[i, 0].imshow(orig_left[i].permute(1, 2, 0))
-        axes[i, 0].set_title("Left Original" if i == 0 else "")
-        axes[i, 0].axis('off')
+                axes[i, 0].imshow(masked_left.permute(1, 2, 0))
+                axes[i, 0].set_title("Left (Masked)" if i == 0 else "")
+                axes[i, 0].axis('off')
 
-        axes[i, 1].imshow(masked_left[i].permute(1, 2, 0))
-        axes[i, 1].set_title("Left Masked" if i == 0 else "")
-        axes[i, 1].axis('off')
+                axes[i, 1].imshow(orig_right.permute(1, 2, 0))
+                axes[i, 1].set_title("Right (Visible)" if i == 0 else "")
+                axes[i, 1].axis('off')
 
-        axes[i, 2].imshow(recon_left[i].permute(1, 2, 0))
-        axes[i, 2].set_title("Left Recon" if i == 0 else "")
-        axes[i, 2].axis('off')
+                axes[i, 2].imshow(recon_left.permute(1, 2, 0))
+                axes[i, 2].set_title("Left Recon" if i == 0 else "")
+                axes[i, 2].axis('off')
 
-        # Right view: original, masked, reconstructed
-        axes[i, 3].imshow(orig_right[i].permute(1, 2, 0))
-        axes[i, 3].set_title("Right Original" if i == 0 else "")
-        axes[i, 3].axis('off')
+                axes[i, 3].imshow(orig_left.permute(1, 2, 0))
+                axes[i, 3].set_title("Left GT" if i == 0 else "")
+                axes[i, 3].axis('off')
 
-        axes[i, 4].imshow(masked_right[i].permute(1, 2, 0))
-        axes[i, 4].set_title("Right Masked" if i == 0 else "")
-        axes[i, 4].axis('off')
+                # Case 2: RIGHT masked, LEFT visible -> reconstruct RIGHT
+                orig_left2 = denormalize_clip(result_mask_right["original_left"][i:i+1]).cpu()[0]
+                masked_right = denormalize_clip(result_mask_right["masked_right"][i:i+1]).cpu()[0]
+                recon_right = result_mask_right["recon_right"][i].cpu().clamp(0, 1)
+                orig_right2 = denormalize_clip(result_mask_right["original_right"][i:i+1]).cpu()[0]
 
-        axes[i, 5].imshow(recon_right[i].permute(1, 2, 0))
-        axes[i, 5].set_title("Right Recon" if i == 0 else "")
-        axes[i, 5].axis('off')
+                axes[i, 4].imshow(orig_left2.permute(1, 2, 0))
+                axes[i, 4].set_title("Left (Visible)" if i == 0 else "")
+                axes[i, 4].axis('off')
 
-    plt.suptitle(f"Epoch {epoch} Reconstructions", fontsize=14)
+                axes[i, 5].imshow(masked_right.permute(1, 2, 0))
+                axes[i, 5].set_title("Right (Masked)" if i == 0 else "")
+                axes[i, 5].axis('off')
+
+                axes[i, 6].imshow(recon_right.permute(1, 2, 0))
+                axes[i, 6].set_title("Right Recon" if i == 0 else "")
+                axes[i, 6].axis('off')
+
+                axes[i, 7].imshow(orig_right2.permute(1, 2, 0))
+                axes[i, 7].set_title("Right GT" if i == 0 else "")
+                axes[i, 7].axis('off')
+
+            plt.suptitle(f"Epoch {epoch} - Cross-View Completion", fontsize=14)
+
+        else:
+            # Standard mode: both views masked
+            result = model.get_reconstruction(left_img, right_img)
+
+            # Denormalize for visualization
+            orig_left = denormalize_clip(result["original_left"]).cpu()
+            orig_right = denormalize_clip(result["original_right"]).cpu()
+            masked_left = denormalize_clip(result["masked_left"]).cpu()
+            masked_right = denormalize_clip(result["masked_right"]).cpu()
+            recon_left = result["recon_left"].cpu().clamp(0, 1)
+            recon_right = result["recon_right"].cpu().clamp(0, 1)
+
+            # Create figure
+            fig, axes = plt.subplots(4, 6, figsize=(18, 12))
+
+            for i in range(4):
+                # Left view: original, masked, reconstructed
+                axes[i, 0].imshow(orig_left[i].permute(1, 2, 0))
+                axes[i, 0].set_title("Left Original" if i == 0 else "")
+                axes[i, 0].axis('off')
+
+                axes[i, 1].imshow(masked_left[i].permute(1, 2, 0))
+                axes[i, 1].set_title("Left Masked" if i == 0 else "")
+                axes[i, 1].axis('off')
+
+                axes[i, 2].imshow(recon_left[i].permute(1, 2, 0))
+                axes[i, 2].set_title("Left Recon" if i == 0 else "")
+                axes[i, 2].axis('off')
+
+                # Right view: original, masked, reconstructed
+                axes[i, 3].imshow(orig_right[i].permute(1, 2, 0))
+                axes[i, 3].set_title("Right Original" if i == 0 else "")
+                axes[i, 3].axis('off')
+
+                axes[i, 4].imshow(masked_right[i].permute(1, 2, 0))
+                axes[i, 4].set_title("Right Masked" if i == 0 else "")
+                axes[i, 4].axis('off')
+
+                axes[i, 5].imshow(recon_right[i].permute(1, 2, 0))
+                axes[i, 5].set_title("Right Recon" if i == 0 else "")
+                axes[i, 5].axis('off')
+
+            plt.suptitle(f"Epoch {epoch} Reconstructions", fontsize=14)
+
     plt.tight_layout()
 
     # Save figure
@@ -208,8 +269,6 @@ def train_epoch(
     model.train()
 
     total_loss = 0.0
-    total_loss_left = 0.0
-    total_loss_right = 0.0
     num_batches = 0
 
     log_every = config.get("logging", {}).get("log_every", 50)
@@ -224,9 +283,9 @@ def train_epoch(
         right_img = batch["right_img"].cuda()
 
         # Forward pass
+        # model() returns loss tensor (shape (num_gpus,) with DataParallel)
         optimizer.zero_grad()
-        result = model.forward_mae(left_img, right_img)
-        loss = result["loss"]
+        loss = model(left_img, right_img).mean()  # Average across GPUs
 
         # Backward pass
         loss.backward()
@@ -240,8 +299,6 @@ def train_epoch(
 
         # Accumulate losses
         total_loss += loss.item()
-        total_loss_left += result["loss_left"].item()
-        total_loss_right += result["loss_right"].item()
         num_batches += 1
         global_step += 1
 
@@ -255,8 +312,6 @@ def train_epoch(
         if use_wandb:
             log_dict = {
                 "train/loss": loss.item(),
-                "train/loss_left": result["loss_left"].item(),
-                "train/loss_right": result["loss_right"].item(),
                 "train/lr": scheduler.get_last_lr()[0],
                 "train/lr_clip": scheduler.get_last_lr()[1] if len(scheduler.get_last_lr()) > 1 else scheduler.get_last_lr()[0],
                 "train/epoch": epoch,
@@ -275,10 +330,8 @@ def train_epoch(
             wandb.log(log_dict, step=global_step)
 
     avg_loss = total_loss / num_batches
-    avg_loss_left = total_loss_left / num_batches
-    avg_loss_right = total_loss_right / num_batches
 
-    return avg_loss, avg_loss_left, avg_loss_right, global_step
+    return avg_loss, 0.0, 0.0, global_step  # No per-view loss with DataParallel
 
 
 def validate(
@@ -289,13 +342,11 @@ def validate(
     Validate model.
 
     Returns:
-        avg_loss, avg_loss_left, avg_loss_right
+        avg_loss, avg_loss_left (or 0), avg_loss_right (or 0)
     """
     model.eval()
 
     total_loss = 0.0
-    total_loss_left = 0.0
-    total_loss_right = 0.0
     num_batches = 0
 
     with torch.no_grad():
@@ -303,18 +354,14 @@ def validate(
             left_img = batch["left_img"].cuda()
             right_img = batch["right_img"].cuda()
 
-            result = model.forward_mae(left_img, right_img)
-
-            total_loss += result["loss"].item()
-            total_loss_left += result["loss_left"].item()
-            total_loss_right += result["loss_right"].item()
+            # Forward pass (model() returns loss tensor, works with DataParallel)
+            loss = model(left_img, right_img).mean()
+            total_loss += loss.item()
             num_batches += 1
 
     avg_loss = total_loss / num_batches
-    avg_loss_left = total_loss_left / num_batches
-    avg_loss_right = total_loss_right / num_batches
 
-    return avg_loss, avg_loss_left, avg_loss_right
+    return avg_loss, 0.0, 0.0  # No per-view loss with simplified forward
 
 
 def main():
@@ -438,14 +485,24 @@ def main():
         decoder_heads=dec_cfg["num_heads"],
         mask_ratio=mae_cfg["mask_ratio"],
         norm_pix_loss=mae_cfg.get("norm_pix_loss", True),
-        pixel_mask_ratio=mae_cfg.get("pixel_mask_ratio", None),  # Fine-grained masking
+        cross_view_mode=mae_cfg.get("cross_view_mode", False),
     ).cuda()
 
-    # Print masking info
-    if mae_cfg.get("pixel_mask_ratio"):
-        print(f"Using pixel-level masking: patch_ratio={mae_cfg['mask_ratio']}, pixel_ratio={mae_cfg['pixel_mask_ratio']}")
+    # Print masking mode info
+    if mae_cfg.get("cross_view_mode"):
+        print(f"Using Cross-View Completion: mask one view ({mae_cfg['mask_ratio']:.0%}), use other to reconstruct")
+        print(f"  Patch size: {model.patch_size}x{model.patch_size}")
+        print(f"  Patches per image: {model.num_patches}")
     else:
-        print(f"Using standard patch masking: ratio={mae_cfg['mask_ratio']}")
+        print(f"Using standard MAE: mask both views ({mae_cfg['mask_ratio']:.0%})")
+
+    # Multi-GPU support
+    num_gpus = torch.cuda.device_count()
+    if num_gpus > 1:
+        print(f"Using {num_gpus} GPUs with DataParallel")
+        model = nn.DataParallel(model)
+    else:
+        print(f"Using 1 GPU")
 
     # Print model info
     total_params = sum(p.numel() for p in model.parameters())
@@ -457,8 +514,11 @@ def main():
     # Create optimizer and scheduler
     train_cfg = config["training"]
 
+    # Get the underlying model (unwrap DataParallel if needed)
+    model_unwrapped = model.module if isinstance(model, nn.DataParallel) else model
+
     optimizer = create_optimizer(
-        model,
+        model,  # optimizer works with wrapped model
         base_lr=train_cfg["learning_rate"],
         clip_lr=train_cfg.get("clip_lr", train_cfg["learning_rate"] * 0.1),
         weight_decay=train_cfg["weight_decay"],
@@ -480,7 +540,8 @@ def main():
     if args.resume:
         print(f"Resuming from {args.resume}...")
         checkpoint = torch.load(args.resume)
-        model.load_state_dict(checkpoint["model_state_dict"])
+        # Load to unwrapped model (handles both DataParallel and single GPU)
+        model_unwrapped.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
@@ -523,20 +584,20 @@ def main():
                 "epoch": epoch,
             }, step=global_step)
 
-        # Visualize reconstructions
+        # Visualize reconstructions (use unwrapped model for visualization)
         if epoch % vis_every == 0:
             vis_result = visualize_reconstruction(
-                model, vis_batch, epoch, save_dir, use_wandb
+                model_unwrapped, vis_batch, epoch, save_dir, use_wandb
             )
             if vis_result and use_wandb:
                 wandb.log(vis_result, step=global_step)
 
-        # Save checkpoint
+        # Save checkpoint (always save unwrapped model state for portability)
         if epoch % save_every == 0 or val_loss < best_val_loss:
             checkpoint = {
                 "epoch": epoch,
                 "global_step": global_step,
-                "model_state_dict": model.state_dict(),
+                "model_state_dict": model_unwrapped.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "scheduler_state_dict": scheduler.state_dict(),
                 "train_loss": train_loss,
@@ -566,7 +627,7 @@ def main():
 
     # Save final model
     final_path = save_dir / "final_model.pt"
-    model.save_pretrained(final_path, config=config)
+    model_unwrapped.save_pretrained(final_path, config=config)
     print(f"Training complete. Final model saved to {final_path}")
 
     if use_wandb:

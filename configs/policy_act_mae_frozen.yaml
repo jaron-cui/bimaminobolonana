@@ -1,0 +1,52 @@
+# ACT Policy Configuration with Pretrained MAE Visual Encoder
+# Frozen encoder strategy for faster training
+
+name: act
+
+# Visual Encoder Configuration (Pretrained MAE - Frozen)
+encoder:
+  name: mae_bimanual
+  ckpt_path: checkpoints/mae_pretrain/final_model.pt
+  out_dim: 512
+  freeze: true   # Freeze encoder, only train ACT components
+  fuse: concat_mlp     # Concat MLP fusion: fused = MLP(concat([left, right]))
+                       # Preserves bimanual camera differences
+                       # MLP fusion layer will train from scratch (encoder frozen)
+
+# ACT Architecture Hyperparameters (Optimized)
+chunk_size: 50              # Number of future actions to predict (smoother policies)
+temporal_context: 5         # Number of past observations to use as context
+hidden_dim: 512             # Transformer hidden dimension (d_model)
+nheads: 8                   # Number of attention heads in transformer
+num_encoder_layers: 4       # Number of transformer encoder layers
+num_decoder_layers: 7       # Number of transformer decoder layers (ACT uses more decoder layers)
+dim_feedforward: 3200       # Dimension of feedforward network in transformer
+latent_dim: 32              # Dimension of CVAE latent variable
+dropout: 0.1                # Dropout rate in transformer
+
+# Training Hyperparameters (Optimized for frozen encoder)
+kl_weight: 3.0             # Weight for KL divergence loss (controls latent regularization)
+lr: 1.0e-4                  # Learning rate (peak LR after warmup, higher since ACT trains from scratch)
+batch_size: 128             # Training batch size (can be larger with frozen encoder)
+num_epochs: 300             # Number of training epochs (more epochs needed)
+action_loss: l1             # Action loss type: 'l1' or 'l2'
+warmup_epochs: 20           # Linear warmup for first N epochs (longer for training from scratch)
+use_cosine_schedule: true   # Cosine annealing after warmup
+use_proprio: false
+
+
+# Validation & Checkpointing
+checkpoint_frequency: 10    # Save checkpoint every N epochs
+val_split: 0.1              # Fraction of data for validation
+
+# Inference Settings
+temporal_ensemble: true     # Use temporal ensembling during evaluation
+ensemble_window: 10         # Window size for temporal ensembling
+
+# Notes:
+# - This config uses frozen pretrained MAE encoder
+# - Only ACT components (CVAE, transformer, action head) will be trained
+# - Faster training and less memory usage compared to fine-tuning
+# - Higher LR (5e-5) appropriate for training ACT from scratch
+# - Larger batch_size (128) efficient since no encoder gradients computed
+# - More epochs (300) to compensate for frozen encoder

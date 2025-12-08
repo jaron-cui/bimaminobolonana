@@ -51,7 +51,7 @@ class TensorBimanualObs:
       return dev
 
   # ----------------------------------------------------
-  # cpu() / cuda() / to() 
+  # cpu() / cuda() / to()
   # ----------------------------------------------------
   def _apply(self, fn):
       """Internal helper: apply fn to every tensor field."""
@@ -143,8 +143,9 @@ class BimanualDataset(torch.utils.data.Dataset):
     memmap = self.metadata.memmap_data(overwrite=False)
     assert memmap is not None
     observation_array, action_array = memmap
-    self._observation_array = torch.from_numpy(observation_array)
-    self._action_array = torch.from_numpy(action_array)
+    # Copy arrays to make them writable before converting to tensors
+    self._observation_array = torch.from_numpy(observation_array.copy())
+    self._action_array = torch.from_numpy(action_array.copy())
 
   def __len__(self):
     return self.metadata.sample_count

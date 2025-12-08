@@ -14,6 +14,7 @@ from omegaconf import OmegaConf
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from policy.act import build_act_policy, ACTTrainer, create_temporal_dataloader
+from policy.act.dataset import TemporalBimanualDataset
 from robot.sim import JOINT_OBSERVATION_SIZE
 from train.train_utils import Logs
 
@@ -122,38 +123,26 @@ def train_act(
         print(f"Resumed from: {resume_from}\n")
 
     # ----------------------------------------------
-    # Create DataLoader
+    # Create DataLoader with Train/Val Split
     # ----------------------------------------------
     print("Creating data loaders...\n")
 
-    train_loader = create_temporal_dataloader(
-        dataset_path=dataset_dir,
-        temporal_context=config.temporal_context,
-        chunk_size=config.chunk_size,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=0,
-        action_mean_path=action_mean_path,
-        action_std_path=action_std_path,
-    )
-
-    print(f"Training samples: {len(train_loader.dataset)}\n")
+    # Create base dataset first to compute normalization
+    from train.dataset import BimanualDataset
+    base_dataset = BimanualDataset(dataset_dir)
 
     # ============================================================
-    #             ACTION NORMALIZATION (FINAL VERSION)
+    #             ACTION NORMALIZATION
     # ============================================================
-
     print("Computing action normalization...")
 
-    # TemporalBimanualDataset holds the true dataset at .base_dataset
-    base = train_loader.dataset.base_dataset
-
-    action_array = base._action_array            # tensor [N, action_dim]
-    obs_array    = base._observation_array       # tensor [N, obs_dim]
+    # Access base dataset for computing normalization stats
+    action_array = base_dataset._action_array            # tensor [N, action_dim]
+    obs_array    = base_dataset._observation_array       # tensor [N, obs_dim]
 
     # compute visual image tensor size
-    visual_shape = (1, 2, base.metadata.camera_height,
-                    base.metadata.camera_width, 3)
+    visual_shape = (1, 2, base_dataset.metadata.camera_height,
+                    base_dataset.metadata.camera_width, 3)
     visual_size = int(np.prod(visual_shape))
 
     # extract qpos from observation
@@ -177,6 +166,7 @@ def train_act(
     mean = rel.mean(dim=0)
     std  = rel.std(dim=0)
 
+    # Set stats to policy for inference
     policy.action_mean[:] = mean
     policy.action_std[:]  = std
 
@@ -185,22 +175,57 @@ def train_act(
     print("Std  =", std)
     print()
 
+    # Create full temporal dataset with computed stats
+    # This ensures actions returned by dataset are already normalized
+    full_temporal_dataset = TemporalBimanualDataset(
+        base_dataset=base_dataset,
+        temporal_context=config.temporal_context,
+        chunk_size=config.chunk_size,
+        action_mean=mean,
+        action_std=std,
+    )
+
+    # Split dataset into train and validation
+    val_split = config.get("val_split", 0.0)
+    if val_split > 0:
+        total_samples = len(full_temporal_dataset)
+        val_samples = int(total_samples * val_split)
+        train_samples = total_samples - val_samples
+
+        train_dataset, val_dataset = torch.utils.data.random_split(
+            full_temporal_dataset,
+            [train_samples, val_samples],
+            generator=torch.Generator().manual_seed(42),
+        )
+
+        print(f"Training samples: {train_samples}")
+        print(f"Validation samples: {val_samples}\n")
+    else:
+        train_dataset = full_temporal_dataset
+        val_dataset = None
+        print(f"Training samples: {len(train_dataset)}\n")
+
+    # Create train dataloader
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_workers=0,
+        collate_fn=TemporalBimanualDataset.collate_fn,
+    )
+
     # ----------------------------------------------
-    # Validation loader (optional)
+    # Create validation dataloader (if split exists)
     # ----------------------------------------------
     val_loader = None
-    if config.get("val_split", 0) > 0:
-        val_loader = create_temporal_dataloader(
-            dataset_path=dataset_dir,
-            temporal_context=config.temporal_context,
-            chunk_size=config.chunk_size,
+    if val_dataset is not None:
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset,
             batch_size=config.batch_size,
             shuffle=False,
             num_workers=0,
-            action_mean_path=action_mean_path,
-            action_std_path=action_std_path,
+            collate_fn=TemporalBimanualDataset.collate_fn,
         )
-        print(f"Validation samples: {len(val_loader.dataset)}\n")
 
     # ----------------------------------------------
     # Trainer
@@ -218,6 +243,8 @@ def train_act(
         temporal_ensemble=config.get("temporal_ensemble", False),
         on_log_message=print,
         use_wandb=use_wandb,
+        warmup_epochs=config.get("warmup_epochs", 0),
+        use_cosine_schedule=config.get("use_cosine_schedule", False),
     )
 
     # ----------------------------------------------

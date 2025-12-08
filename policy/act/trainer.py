@@ -52,6 +52,8 @@ class ACTTrainer:
         temporal_ensemble: bool = False,
         on_log_message: Callable[[str], None] = print,
         use_wandb: bool = False,
+        warmup_epochs: int = 0,
+        use_cosine_schedule: bool = False,
     ):
         """
         Initialize ACT trainer.
@@ -62,11 +64,13 @@ class ACTTrainer:
             checkpoint_frequency: Save checkpoint every N epochs
             job: Job instance for saving checkpoints and logs
             kl_weight: Weight for KL divergence loss
-            lr: Learning rate
+            lr: Learning rate (peak learning rate for warmup)
             action_loss_type: Type of action loss ('l1' or 'l2')
             temporal_ensemble: Use temporal ensembling during evaluation
             on_log_message: Logging function
             use_wandb: Enable WandB logging
+            warmup_epochs: Number of warmup epochs (0 = no warmup)
+            use_cosine_schedule: Use cosine annealing schedule after warmup
         """
         self.dataloader = dataloader
         self.val_dataloader = val_dataloader
@@ -77,6 +81,8 @@ class ACTTrainer:
         self.temporal_ensemble = temporal_ensemble
         self.log_message = on_log_message
         self.use_wandb = use_wandb and WANDB_AVAILABLE
+        self.warmup_epochs = warmup_epochs
+        self.use_cosine_schedule = use_cosine_schedule
 
         # Loss function for actions
         if action_loss_type == 'l1':
@@ -96,9 +102,31 @@ class ACTTrainer:
         """
         self.log_message(f'Training ACT policy for {num_epochs} epochs.')
         self.log_message(f'KL weight: {self.kl_weight}, LR: {self.lr}')
+        if self.warmup_epochs > 0:
+            self.log_message(f'Warmup epochs: {self.warmup_epochs}')
+        if self.use_cosine_schedule:
+            self.log_message(f'Using cosine annealing schedule')
 
         device = next(model.parameters()).device
-        optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
+
+        # Use AdamW for better regularization with weight decay
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=self.lr,
+            weight_decay=1e-4
+        )
+
+        # Calculate steps per epoch for scheduler
+        steps_per_epoch = len(self.dataloader)
+        total_steps = num_epochs * steps_per_epoch
+        warmup_steps = self.warmup_epochs * steps_per_epoch
+
+        self.log_message(f'Total steps: {total_steps}, Warmup steps: {warmup_steps}')
+
+        # Setup learning rate scheduler
+        scheduler = None
+        if self.warmup_epochs > 0 or self.use_cosine_schedule:
+            scheduler = self._create_scheduler(optimizer, total_steps, warmup_steps)
 
         global_step = 0  # Track global training step for WandB
 
@@ -171,6 +199,11 @@ class ACTTrainer:
                 # Backward pass
                 loss.backward()
                 optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
+
+                # Get current learning rate
+                current_lr = optimizer.param_groups[0]['lr']
 
                 # Log per-step metrics to WandB
                 if self.use_wandb:
@@ -178,7 +211,7 @@ class ACTTrainer:
                         'train_step/loss': loss.item(),
                         'train_step/action_loss': action_loss.item(),
                         'train_step/kl_loss': kl_loss.item(),
-                        'train_step/learning_rate': self.lr,
+                        'train_step/learning_rate': current_lr,
                         'epoch': epoch,
                     }, step=global_step)
 
@@ -199,7 +232,8 @@ class ACTTrainer:
                 f'Epoch {epoch}: '
                 f'Loss={avg_loss:.4f}, '
                 f'Action={avg_action_loss:.4f}, '
-                f'KL={avg_kl_loss:.4f}'
+                f'KL={avg_kl_loss:.4f}, '
+                f'LR={current_lr:.2e}'
             )
 
             # Validation
@@ -217,6 +251,7 @@ class ACTTrainer:
                     'train_epoch/loss': avg_loss,
                     'train_epoch/action_loss': avg_action_loss,
                     'train_epoch/kl_loss': avg_kl_loss,
+                    'train_epoch/learning_rate': current_lr,
                 }
                 if val_loss is not None:
                     log_dict['val/loss'] = val_loss
@@ -369,3 +404,45 @@ class ACTTrainer:
             'trajectory': trajectory,
             'num_steps': num_steps,
         }
+
+    def _create_scheduler(self, optimizer, total_steps, warmup_steps):
+        """
+        Create learning rate scheduler with warmup + cosine annealing.
+        Uses PyTorch's SequentialLR for standard Warmup -> Cosine schedule.
+        Updates per STEP (not per epoch).
+
+        Args:
+            optimizer: PyTorch optimizer
+            total_steps: Total training steps (epochs * steps_per_epoch)
+            warmup_steps: Number of warmup steps
+
+        Returns:
+            Learning rate scheduler
+        """
+        from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
+
+        # Warmup scheduler
+        # Linearly increase LR from low value to base_lr over warmup_steps
+        warmup_scheduler = LinearLR(
+            optimizer,
+            start_factor=0.001,
+            end_factor=1.0,
+            total_iters=warmup_steps
+        )
+
+        # Main scheduler (Cosine Annealing)
+        # Cosine decay from base_lr to min_lr over remaining steps
+        main_scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=total_steps - warmup_steps,
+            eta_min=1e-6  # Minimum LR
+        )
+
+        # Combine them
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, main_scheduler],
+            milestones=[warmup_steps]
+        )
+
+        return scheduler

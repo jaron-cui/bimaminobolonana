@@ -125,6 +125,23 @@ class BimanualCrossMAE(MultiViewEncoder):
         self.norm_pix_loss = norm_pix_loss
         self.cross_view_mode = cross_view_mode
 
+    def forward(
+        self,
+        left_img: torch.Tensor,
+        right_img: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Default forward pass for MAE training (enables DataParallel).
+
+        Returns just the loss tensor (shape (1,)) so DataParallel can
+        properly gather losses from multiple GPUs.
+
+        For full results (predictions, masks, etc.), use forward_mae() directly.
+        """
+        result = self.forward_mae(left_img, right_img)
+        # Return loss as 1D tensor for DataParallel compatibility
+        return result["loss"].unsqueeze(0)
+
     def forward_mae(
         self,
         left_img: torch.Tensor,
@@ -156,16 +173,16 @@ class BimanualCrossMAE(MultiViewEncoder):
     ) -> Dict[str, torch.Tensor]:
         """
         Cross-View Completion: mask ONE view, use the other to reconstruct.
-        
+
         Randomly choose to mask left or right view each forward pass.
         The visible view provides full context through cross-attention.
         """
         B = left_img.shape[0]
         device = left_img.device
-        
+
         # Randomly choose which view to mask (per batch, same for all samples)
         mask_left_view = torch.rand(1).item() < 0.5
-        
+
         if mask_left_view:
             # LEFT is masked, RIGHT is fully visible
             # Get masked tokens for left
@@ -175,24 +192,24 @@ class BimanualCrossMAE(MultiViewEncoder):
             # Get ALL tokens for right (no masking)
             right_tokens, _ = self.clip_extractor.get_patch_tokens(right_img)
             right_mask = torch.zeros(B, self.num_patches, device=device)  # No masking
-            
+
             # Cross attention: masked left attends to full right
             left_fused, right_fused = self.cross_attention(left_vis, right_tokens)
-            
+
             # Only decode left (the masked view)
             pred_left = self.decoder_left(left_fused, left_restore)
-            
+
             # For consistency, also decode right (but no loss)
             # We need restore indices for right - since no masking, just use identity
             right_restore = torch.arange(self.num_patches, device=device).unsqueeze(0).expand(B, -1)
             pred_right = self.decoder_right(right_fused, right_restore)
-            
+
             # Compute loss ONLY on masked view
             target_left = patchify(left_img, self.patch_size)
             loss = compute_mae_loss(pred_left, target_left, left_mask, self.norm_pix_loss)
-            
+
             masked_view = "left"
-            
+
         else:
             # RIGHT is masked, LEFT is fully visible
             # Get ALL tokens for left (no masking)
@@ -202,23 +219,23 @@ class BimanualCrossMAE(MultiViewEncoder):
             right_vis, right_restore, right_mask = self.clip_extractor.get_patch_tokens_with_mask(
                 right_img, self.mask_ratio
             )
-            
+
             # Cross attention: full left, masked right
             left_fused, right_fused = self.cross_attention(left_tokens, right_vis)
-            
+
             # Only decode right (the masked view)
             pred_right = self.decoder_right(right_fused, right_restore)
-            
+
             # For consistency, also decode left
             left_restore = torch.arange(self.num_patches, device=device).unsqueeze(0).expand(B, -1)
             pred_left = self.decoder_left(left_fused, left_restore)
-            
+
             # Compute loss ONLY on masked view
             target_right = patchify(right_img, self.patch_size)
             loss = compute_mae_loss(pred_right, target_right, right_mask, self.norm_pix_loss)
-            
+
             masked_view = "right"
-        
+
         return {
             "loss": loss,
             "pred_left": pred_left,
@@ -331,15 +348,26 @@ class BimanualCrossMAE(MultiViewEncoder):
         self,
         left_img: torch.Tensor,
         right_img: torch.Tensor,
+        force_mask_view: Optional[str] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Get reconstructed images for visualization.
 
-        Returns original images, masked images, and reconstructions.
-        If pixel_mask_ratio is set, shows sparse pixel-level masking pattern.
+        Args:
+            left_img: (B, 3, 224, 224) left camera image
+            right_img: (B, 3, 224, 224) right camera image
+            force_mask_view: For cross_view_mode, force which view to mask
+                            ('left', 'right', or None for random)
+
+        Returns:
+            dict with original, masked, and reconstructed images plus metadata.
         """
         with torch.no_grad():
-            result = self.forward_mae(left_img, right_img)
+            # For visualization with forced view
+            if force_mask_view is not None and self.cross_view_mode:
+                result = self._forward_cross_view_forced(left_img, right_img, force_mask_view)
+            else:
+                result = self.forward_mae(left_img, right_img)
 
             h = w = self.img_size // self.patch_size
             B = left_img.shape[0]
@@ -348,31 +376,21 @@ class BimanualCrossMAE(MultiViewEncoder):
             recon_left = self.decoder_left.unpatchify(result["pred_left"], h, w)
             recon_right = self.decoder_right.unpatchify(result["pred_right"], h, w)
 
-            if self.pixel_mask_ratio is not None and "pixel_mask_left" in result:
-                # Use sparse pixel-level mask for visualization
-                # Convert from (B, N, D) to (B, 3, H, W)
-                mask_left = pixel_mask_to_image(
-                    result["pixel_mask_left"], self.patch_size, self.img_size
-                )
-                mask_right = pixel_mask_to_image(
-                    result["pixel_mask_right"], self.patch_size, self.img_size
-                )
-            else:
-                # Original patch-level mask visualization
-                patch_mask_left = result["mask_left"]
-                patch_mask_right = result["mask_right"]
+            # Convert patch masks to image masks
+            patch_mask_left = result["mask_left"]
+            patch_mask_right = result["mask_right"]
 
-                mask_left = patch_mask_left.reshape(-1, h, w)
-                mask_right = patch_mask_right.reshape(-1, h, w)
+            mask_left = patch_mask_left.reshape(-1, h, w)
+            mask_right = patch_mask_right.reshape(-1, h, w)
 
-                # Expand masks to image size
-                mask_left = mask_left.unsqueeze(1).repeat(1, 3, 1, 1)
-                mask_left = mask_left.repeat_interleave(self.patch_size, dim=2)
-                mask_left = mask_left.repeat_interleave(self.patch_size, dim=3)
+            # Expand masks to image size
+            mask_left = mask_left.unsqueeze(1).repeat(1, 3, 1, 1)
+            mask_left = mask_left.repeat_interleave(self.patch_size, dim=2)
+            mask_left = mask_left.repeat_interleave(self.patch_size, dim=3)
 
-                mask_right = mask_right.unsqueeze(1).repeat(1, 3, 1, 1)
-                mask_right = mask_right.repeat_interleave(self.patch_size, dim=2)
-                mask_right = mask_right.repeat_interleave(self.patch_size, dim=3)
+            mask_right = mask_right.unsqueeze(1).repeat(1, 3, 1, 1)
+            mask_right = mask_right.repeat_interleave(self.patch_size, dim=2)
+            mask_right = mask_right.repeat_interleave(self.patch_size, dim=3)
 
             return {
                 "original_left": left_img,
@@ -383,7 +401,63 @@ class BimanualCrossMAE(MultiViewEncoder):
                 "recon_right": recon_right,
                 "mask_left": mask_left,
                 "mask_right": mask_right,
+                "masked_view": result.get("masked_view", "both"),
             }
+
+    def _forward_cross_view_forced(
+        self,
+        left_img: torch.Tensor,
+        right_img: torch.Tensor,
+        mask_view: str,
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Cross-view forward with forced mask view (for visualization).
+        """
+        B = left_img.shape[0]
+        device = left_img.device
+
+        if mask_view == "left":
+            # LEFT is masked, RIGHT is fully visible
+            left_vis, left_restore, left_mask = self.clip_extractor.get_patch_tokens_with_mask(
+                left_img, self.mask_ratio
+            )
+            right_tokens, _ = self.clip_extractor.get_patch_tokens(right_img)
+            right_mask = torch.zeros(B, self.num_patches, device=device)
+
+            left_fused, right_fused = self.cross_attention(left_vis, right_tokens)
+
+            pred_left = self.decoder_left(left_fused, left_restore)
+            right_restore = torch.arange(self.num_patches, device=device).unsqueeze(0).expand(B, -1)
+            pred_right = self.decoder_right(right_fused, right_restore)
+
+            target_left = patchify(left_img, self.patch_size)
+            loss = compute_mae_loss(pred_left, target_left, left_mask, self.norm_pix_loss)
+
+        else:  # mask_view == "right"
+            # RIGHT is masked, LEFT is fully visible
+            left_tokens, _ = self.clip_extractor.get_patch_tokens(left_img)
+            left_mask = torch.zeros(B, self.num_patches, device=device)
+            right_vis, right_restore, right_mask = self.clip_extractor.get_patch_tokens_with_mask(
+                right_img, self.mask_ratio
+            )
+
+            left_fused, right_fused = self.cross_attention(left_tokens, right_vis)
+
+            left_restore = torch.arange(self.num_patches, device=device).unsqueeze(0).expand(B, -1)
+            pred_left = self.decoder_left(left_fused, left_restore)
+            pred_right = self.decoder_right(right_fused, right_restore)
+
+            target_right = patchify(right_img, self.patch_size)
+            loss = compute_mae_loss(pred_right, target_right, right_mask, self.norm_pix_loss)
+
+        return {
+            "loss": loss,
+            "pred_left": pred_left,
+            "pred_right": pred_right,
+            "mask_left": left_mask,
+            "mask_right": right_mask,
+            "masked_view": mask_view,
+        }
 
     @classmethod
     def from_pretrained(cls, checkpoint_path: str, **kwargs) -> "BimanualCrossMAE":
@@ -392,7 +466,7 @@ class BimanualCrossMAE(MultiViewEncoder):
 
         Args:
             checkpoint_path: path to .pt checkpoint file
-            **kwargs: override config parameters
+            **kwargs: override config parameters (e.g., out_dim, fuse, freeze_clip)
 
         Returns:
             Loaded model
@@ -400,14 +474,60 @@ class BimanualCrossMAE(MultiViewEncoder):
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
 
         # Get config from checkpoint
-        config = checkpoint.get("config", {})
-        config.update(kwargs)
+        saved_config = checkpoint.get("config", {})
+
+        # Extract model parameters from the nested config structure
+        model_config = {}
+
+        # From encoder section
+        if "encoder" in saved_config:
+            enc_cfg = saved_config["encoder"]
+            model_config["clip_model"] = enc_cfg.get("clip_model", "ViT-B-32")
+            model_config["pretrained"] = enc_cfg.get("pretrained", "openai")
+            model_config["out_dim"] = enc_cfg.get("out_dim", 512)
+            model_config["freeze_clip"] = enc_cfg.get("freeze_clip", False)
+
+        # From cross_attention section
+        if "cross_attention" in saved_config:
+            ca_cfg = saved_config["cross_attention"]
+            model_config["cross_attn_layers"] = ca_cfg.get("num_layers", 2)
+            model_config["cross_attn_heads"] = ca_cfg.get("num_heads", 12)
+
+        # From decoder section
+        if "decoder" in saved_config:
+            dec_cfg = saved_config["decoder"]
+            model_config["decoder_dim"] = dec_cfg.get("embed_dim", 256)
+            model_config["decoder_depth"] = dec_cfg.get("depth", 4)
+            model_config["decoder_heads"] = dec_cfg.get("num_heads", 4)
+
+        # From mae section
+        if "mae" in saved_config:
+            mae_cfg = saved_config["mae"]
+            model_config["mask_ratio"] = mae_cfg.get("mask_ratio", 0.75)
+            model_config["norm_pix_loss"] = mae_cfg.get("norm_pix_loss", True)
+            model_config["cross_view_mode"] = mae_cfg.get("cross_view_mode", False)
+
+        # Override with any user-provided kwargs
+        model_config.update(kwargs)
 
         # Create model
-        model = cls(**config)
+        model = cls(**model_config)
 
-        # Load weights
-        model.load_state_dict(checkpoint["model_state_dict"])
+        # Load weights (allow missing fusion weights since MAE pretraining doesn't use fusion)
+        missing_keys, unexpected_keys = model.load_state_dict(
+            checkpoint["model_state_dict"],
+            strict=False
+        )
+
+        # Filter out expected missing keys (fusion module)
+        fusion_missing = [k for k in missing_keys if 'fuser_module' in k or 'fusion' in k]
+        other_missing = [k for k in missing_keys if k not in fusion_missing]
+
+        if other_missing:
+            print(f"Warning: Unexpected missing keys in checkpoint: {other_missing}")
+
+        if fusion_missing:
+            print(f"Note: Fusion module weights not in checkpoint (will be initialized randomly): {len(fusion_missing)} keys")
 
         return model
 

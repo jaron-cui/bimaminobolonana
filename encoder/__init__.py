@@ -92,11 +92,30 @@ def build_encoder(cfg: Dict[str, Any] | Any) -> MultiViewEncoder:
         # Load from pretrained checkpoint
         ckpt_path = getattr(cfg, "ckpt_path", None) or cfg.get("ckpt_path", None)
         if ckpt_path:
-            return BimanualCrossMAE.from_pretrained(
+            # Load pretrained model
+            model = BimanualCrossMAE.from_pretrained(
                 ckpt_path,
                 out_dim=int(getattr(cfg, "out_dim", None) or cfg.get("out_dim", 512)),
                 fuse=getattr(cfg, "fuse", None) if hasattr(cfg, "fuse") else cfg.get("fuse", "mean"),
             )
+
+            # Handle freeze parameter
+            freeze = bool(
+                getattr(cfg, "freeze", None)
+                if hasattr(cfg, "freeze")
+                else cfg.get("freeze", False)
+            )
+            if freeze:
+                # Freeze all parameters
+                for param in model.parameters():
+                    param.requires_grad = False
+                # Optionally keep fusion layers trainable if they exist
+                if hasattr(model, 'fusion') and model.fusion is not None:
+                    for param in model.fusion.parameters():
+                        param.requires_grad = True
+
+            return model
+
         # Create new model
         kwargs = {
             "clip_model": getattr(cfg, "clip_model", None) or cfg.get("clip_model", "ViT-B-32"),

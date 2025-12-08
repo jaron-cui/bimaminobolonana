@@ -1,0 +1,51 @@
+# ACT Policy Configuration with Pretrained MAE Visual Encoder
+# Fine-tuned encoder strategy for end-to-end training
+
+name: act
+
+# Visual Encoder Configuration (Pretrained MAE)
+encoder:
+  name: mae_bimanual
+  ckpt_path: checkpoints/mae_pretrain/final_model.pt
+  out_dim: 512
+  freeze: false  # End-to-end fine-tuning
+  fuse: concat_mlp     # Concat MLP fusion: fused = MLP(concat([left, right]))
+                       # Preserves bimanual camera differences, learnable fusion
+
+
+# ACT Architecture Hyperparameters (Optimized)
+chunk_size: 50              # Number of future actions to predict (smoother policies)
+temporal_context: 5         # Number of past observations to use as context
+hidden_dim: 512             # Transformer hidden dimension (d_model)
+nheads: 8                   # Number of attention heads in transformer
+num_encoder_layers: 4       # Number of transformer encoder layers
+num_decoder_layers: 7       # Number of transformer decoder layers (ACT uses more decoder layers)
+dim_feedforward: 3200       # Dimension of feedforward network in transformer
+latent_dim: 32              # Dimension of CVAE latent variable
+dropout: 0.1                # Dropout rate in transformer
+
+# Training Hyperparameters (Optimized for stable convergence)
+kl_weight: 5.0             # Weight for KL divergence loss (controls latent regularization)
+lr: 1.0e-4                  # Learning rate (peak LR after warmup)
+batch_size: 320             # Training batch size (reduced from 200 for stable gradients)
+num_epochs: 100             # Number of training epochs (increased for more training)
+action_loss: l1             # Action loss type: 'l1' or 'l2'
+warmup_epochs: 10           # Linear warmup for first N epochs
+use_cosine_schedule: true   # Cosine annealing after warmup
+use_proprio: false
+
+
+# Validation & Checkpointing
+checkpoint_frequency: 50    # Save checkpoint every N epochs
+val_split: 0.1              # Fraction of data for validation
+
+# Inference Settings
+temporal_ensemble: true     # Use temporal ensembling during evaluation
+ensemble_window: 10         # Window size for temporal ensembling
+
+# Notes:
+# - This config uses the pretrained MAE encoder from MAE pretraining
+# - Encoder will be fine-tuned end-to-end with ACT policy
+# - Optimized batch_size (64 vs 200) provides 422 batches/epoch for stable training
+# - Lower LR (1e-5) prevents catastrophic forgetting of pretrained features
+# - Larger chunk_size (50) produces smoother action sequences

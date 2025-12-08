@@ -30,6 +30,8 @@ class TemporalBimanualDataset(Dataset):
             pad_mode: str = 'repeat',  # 'repeat' or 'zero'
             action_mean_path: str | None = None,
             action_std_path: str | None = None,
+            action_mean: torch.Tensor | None = None,
+            action_std: torch.Tensor | None = None,
             use_relative: bool = True,
         ):
         """
@@ -40,6 +42,8 @@ class TemporalBimanualDataset(Dataset):
             temporal_context: Number of past observations to include
             chunk_size: Number of future actions to predict
             pad_mode: How to pad at episode boundaries ('repeat' or 'zero')
+            action_mean: Optional pre-loaded mean tensor
+            action_std: Optional pre-loaded std tensor
         """
         self.base_dataset = base_dataset
         self.temporal_context = temporal_context
@@ -49,7 +53,12 @@ class TemporalBimanualDataset(Dataset):
         self.use_relative = use_relative
         self.action_mean = None
         self.action_std = None
-        if action_mean_path is not None and action_std_path is not None:
+
+        # Priority: 1. Passed tensors, 2. Paths
+        if action_mean is not None and action_std is not None:
+             self.action_mean = action_mean.float()
+             self.action_std = action_std.float()
+        elif action_mean_path is not None and action_std_path is not None:
             import numpy as _np
             try:
                 mean = _np.load(action_mean_path)

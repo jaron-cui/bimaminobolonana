@@ -14,15 +14,16 @@ data:
   # Apply augmentation during training
   augment: true
   # DataLoader settings
-  batch_size: 420
-  num_workers: 4
+  # With 2x RTX 5090 (31GB each), DataParallel splits batch across GPUs
+  batch_size: 186  # ~82 per GPU
+  num_workers: 8
 
 # Encoder configuration (CLIP ViT backbone)
 encoder:
   # CLIP model variant
   # - ViT-B-32: patch_size=32, 7x7=49 patches (coarse)
-  # - ViT-B-16: patch_size=16, 14x14=196 patches (finer, recommended)
-  # - ViT-L-14: patch_size=14, 16x16=256 patches (largest)
+  # - ViT-B-16: patch_size=16, 14x14=196 patches (finer, recommended) num_heads=12
+  # - ViT-L-14: patch_size=14, 16x16=256 patches (largest) num_heads=16
   clip_model: "ViT-B-16"
   # Pretrained weights source
   pretrained: "openai"
@@ -36,7 +37,7 @@ cross_attention:
   # Number of cross-attention layers
   num_layers: 2
   # Number of attention heads
-  num_heads: 12
+  num_heads: 16
 
 # Decoder configuration (lightweight for MAE)
 decoder:
@@ -50,10 +51,10 @@ decoder:
 # MAE training configuration
 mae:
   # Mask ratio (fraction of patches to mask)
-  mask_ratio: 0.75
+  mask_ratio: 0.7
   # Normalize target pixels by patch variance
   norm_pix_loss: true
-  
+
   # Cross-View Completion Mode (recommended for bimanual setup)
   # When true: randomly mask ONE view, keep the other fully visible
   # The model must use the visible view to reconstruct the masked view
@@ -72,11 +73,11 @@ mae:
 # Optimization configuration
 training:
   # Number of epochs
-  epochs: 100
+  epochs: 200
   # Base learning rate (for decoder, cross-attention, etc.)
-  learning_rate: 1.0e-4
+  learning_rate: 1.0e-4 # now for small batch size
   # Learning rate for CLIP backbone (lower for fine-tuning)
-  clip_lr: 1.0e-5
+  clip_lr: 1.0e-5 # now for small batch size
   # Weight decay
   weight_decay: 0.05
   # Warmup epochs

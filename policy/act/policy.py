@@ -45,6 +45,7 @@ class ACTPolicy(BimanualActor):
         latent_dim: int = 32,
         dropout: float = 0.1,
         camera_names: Optional[list] = None,
+        use_proprio: bool = True,
     ):
         """
         Initialize ACT policy.
@@ -61,6 +62,7 @@ class ACTPolicy(BimanualActor):
             latent_dim: Dimension of CVAE latent variable
             dropout: Dropout rate
             camera_names: List of camera names (for reference, not used in forward)
+            use_proprio: Whether to use proprioception (gripper states). Set to False for pure visual policy.
         """
         super().__init__()
 
@@ -69,21 +71,27 @@ class ACTPolicy(BimanualActor):
         self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
         self.camera_names = camera_names or ['left', 'right']
+        self.use_proprio = use_proprio
 
         # Visual encoder (swappable via config)
         self.visual_encoder: MultiViewEncoder = build_encoder(encoder_cfg)
         visual_feat_dim = self.visual_encoder.out_dim
 
-        # Proprioception encoder: only gripper qpos -> hidden_dim
+        # Proprioception encoder: only gripper qpos -> hidden_dim (optional)
         # Use minimal proprioception (only gripper states) to reduce dependency on arm positions
         # Gripper indices: left=6, right=14 (2 values total from qpos)
-        self.proprio_encoder = nn.Linear(2, hidden_dim)  # Only 2 gripper values
+        if self.use_proprio:
+            self.proprio_encoder = nn.Linear(2, hidden_dim)  # Only 2 gripper values
+            proprio_feat_dim = hidden_dim
+        else:
+            self.proprio_encoder = None
+            proprio_feat_dim = 0
 
         # Temporal context encoder: encodes the temporal_context observations
-        # Input: temporal_context * (visual_feat_dim + hidden_dim)
+        # Input: temporal_context * (visual_feat_dim + proprio_feat_dim)
         # Output: hidden_dim
         self.temporal_encoder = nn.Linear(
-            temporal_context * (visual_feat_dim + hidden_dim),
+            temporal_context * (visual_feat_dim + proprio_feat_dim),
             hidden_dim
         )
 
@@ -163,12 +171,19 @@ class ACTPolicy(BimanualActor):
         with torch.set_grad_enabled(self.training):
             visual_feats = self.visual_encoder.encode((left_imgs, right_imgs))['fused']
 
-        # Proprioception encoding
-        proprio = torch.cat([obs.qpos.array, obs.qvel.array], dim=-1)  # [batch, 2*JOINT_OBS_SIZE]
-        proprio_feats = self.proprio_encoder(proprio)  # [batch, hidden_dim]
+        # Proprioception encoding: only use gripper states (optional)
+        if self.use_proprio:
+            # Gripper indices in qpos: left=6, right=14 (out of 16 joints)
+            left_gripper = obs.qpos.array[:, 6:7]   # [batch, 1]
+            right_gripper = obs.qpos.array[:, 14:15]  # [batch, 1]
+            proprio = torch.cat([left_gripper, right_gripper], dim=-1)  # [batch, 2]
+            proprio_feats = self.proprio_encoder(proprio)  # [batch, hidden_dim]
 
-        # Combine visual and proprioception
-        combined_feats = torch.cat([visual_feats, proprio_feats], dim=-1)  # [batch, visual_feat_dim + hidden_dim]
+            # Combine visual and proprioception
+            combined_feats = torch.cat([visual_feats, proprio_feats], dim=-1)  # [batch, visual_feat_dim + hidden_dim]
+        else:
+            # Pure visual policy (no proprioception)
+            combined_feats = visual_feats  # [batch, visual_feat_dim]
 
         return combined_feats
 
@@ -349,14 +364,14 @@ class ACTPolicy(BimanualActor):
         Compute KL divergence between posterior and prior.
 
         Returns:
-            KL divergence loss
+            KL divergence loss (per-element average)
         """
         if self.latent_mean is None or self.latent_logvar is None:
             return torch.tensor(0.0)
 
         # KL(q||p) for Gaussian: -0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-        kl_loss = -0.5 * torch.sum(1 + self.latent_logvar - self.latent_mean.pow(2) - self.latent_logvar.exp())
-        kl_loss = kl_loss / self.latent_mean.shape[0]  # Average over batch
+        # Use mean instead of sum to properly average over all dimensions (batch_size * latent_dim)
+        kl_loss = -0.5 * torch.mean(1 + self.latent_logvar - self.latent_mean.pow(2) - self.latent_logvar.exp())
 
         return kl_loss
 
@@ -381,5 +396,6 @@ def build_act_policy(config: Dict) -> ACTPolicy:
         num_decoder_layers=config.get('num_decoder_layers', 7),
         dim_feedforward=config.get('dim_feedforward', 3200),
         latent_dim=config.get('latent_dim', 32),
+        use_proprio=config.get('use_proprio', True),  # Default: use proprioception
         dropout=config.get('dropout', 0.1),
     )
